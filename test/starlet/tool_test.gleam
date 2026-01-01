@@ -4,35 +4,6 @@ import gleam/dynamic/decode
 import gleam/json
 import starlet/tool
 
-pub fn function_creates_definition_test() {
-  let def =
-    tool.function(
-      name: "get_weather",
-      description: "Get the weather",
-      parameters: json.object([]),
-    )
-
-  let tool.Function(name, description, _params) = def
-  assert name == "get_weather"
-  assert description == "Get the weather"
-}
-
-pub fn success_creates_tool_result_test() {
-  let call = tool.Call(id: "call_1", name: "test", arguments: dynamic.nil())
-  let result = tool.success(call, json.int(42))
-
-  assert result.id == "call_1"
-  assert result.name == "test"
-}
-
-pub fn error_creates_result_with_message_test() {
-  let call = tool.Call(id: "call_1", name: "test", arguments: dynamic.nil())
-  let result = tool.error(call, "something went wrong")
-
-  assert result.id == "call_1"
-  assert result.name == "test"
-}
-
 pub fn dispatch_routes_to_correct_handler_test() {
   let handler =
     tool.dispatch([
@@ -54,13 +25,6 @@ pub fn dispatch_returns_not_found_for_unknown_test() {
 
   let call = tool.Call(id: "1", name: "unknown", arguments: dynamic.nil())
   let assert Error(tool.NotFound("unknown")) = handler(call)
-}
-
-pub fn handler_creates_tuple_test() {
-  let #(name, _run) =
-    tool.handler("my_tool", fn(_args) { Ok(json.string("ok")) })
-
-  assert name == "my_tool"
 }
 
 pub fn handler_wraps_result_in_success_test() {

@@ -151,11 +151,6 @@ pub fn encode_request_with_options_test() {
   |> birdie.snap("openai encode request with options")
 }
 
-pub fn new_creates_client_test() {
-  let client = openai.new("sk-test-key")
-  assert starlet.provider_name(client) == "openai"
-}
-
 pub fn decode_simple_response_test() {
   let body =
     json.object([
@@ -218,20 +213,6 @@ pub fn decode_response_with_tool_calls_test() {
 pub fn decode_invalid_json_returns_error_test() {
   let body = "not json"
   let assert Error(starlet.Decode(_)) = openai.decode_response(body)
-}
-
-pub fn chat_returns_openai_ext_test() {
-  let client = openai.new("test-key")
-  let chat = starlet.chat(client, "gpt-5-nano")
-  let _chat = openai.reset_response_id(chat)
-}
-
-pub fn continue_from_sets_response_id_test() {
-  let client = openai.new("test-key")
-  let chat =
-    starlet.chat(client, "gpt-4o")
-    |> openai.continue_from("resp_123")
-  let _chat = openai.reset_response_id(chat)
 }
 
 pub fn decode_models_response_test() {

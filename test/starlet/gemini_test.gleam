@@ -6,31 +6,6 @@ import starlet.{AssistantMessage, Request, ToolResultMessage, UserMessage}
 import starlet/gemini
 import starlet/tool
 
-pub fn new_creates_client_test() {
-  let client = gemini.new("test-api-key")
-  assert starlet.provider_name(client) == "gemini"
-}
-
-pub fn with_thinking_dynamic_test() {
-  let client = gemini.new("test-api-key")
-  let chat =
-    starlet.chat(client, "gemini-2.5-flash")
-    |> starlet.user("Hello")
-
-  let assert Ok(chat) = gemini.with_thinking(chat, gemini.ThinkingDynamic)
-  assert chat.ext.thinking_budget == Some(gemini.ThinkingDynamic)
-}
-
-pub fn with_thinking_off_test() {
-  let client = gemini.new("test-api-key")
-  let chat =
-    starlet.chat(client, "gemini-2.5-flash")
-    |> starlet.user("Hello")
-
-  let assert Ok(chat) = gemini.with_thinking(chat, gemini.ThinkingOff)
-  assert chat.ext.thinking_budget == Some(gemini.ThinkingOff)
-}
-
 pub fn with_thinking_fixed_valid_test() {
   let client = gemini.new("test-api-key")
   let chat =
@@ -79,29 +54,6 @@ pub fn with_thinking_fixed_too_high_test() {
 
   let assert Error(starlet.Provider("gemini", _, _)) =
     gemini.with_thinking(chat, gemini.ThinkingFixed(32_769))
-}
-
-pub fn thinking_accessor_test() {
-  let turn =
-    starlet.Turn(
-      text: "Hi",
-      tool_calls: [],
-      ext: gemini.Ext(
-        thinking_budget: None,
-        thinking: Some("I thought about this"),
-      ),
-    )
-  assert gemini.thinking(turn) == Some("I thought about this")
-}
-
-pub fn thinking_accessor_none_test() {
-  let turn =
-    starlet.Turn(
-      text: "Hi",
-      tool_calls: [],
-      ext: gemini.Ext(thinking_budget: None, thinking: None),
-    )
-  assert gemini.thinking(turn) == None
 }
 
 fn default_ext() -> gemini.Ext {

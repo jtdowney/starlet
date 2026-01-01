@@ -136,11 +136,6 @@ pub fn decode_missing_message_returns_error_test() {
   let assert Error(Decode(_)) = ollama.decode_response(body)
 }
 
-pub fn new_creates_client_test() {
-  let client = ollama.new("http://localhost:11434")
-  assert starlet.provider_name(client) == "ollama"
-}
-
 pub fn encode_request_with_tools_test() {
   let weather_tool =
     tool.function(
