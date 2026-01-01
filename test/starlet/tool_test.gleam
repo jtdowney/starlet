@@ -47,33 +47,6 @@ pub fn dynamic_handler_propagates_error_test() {
   let assert Error(tool.ExecutionFailed("boom")) = run(call)
 }
 
-pub fn parse_arguments_decodes_valid_json_test() {
-  let arguments =
-    json.object([#("city", json.string("Paris"))])
-    |> json.to_string
-  let assert Ok(arguments) = json.parse(arguments, decode.dynamic)
-  let call = tool.Call(id: "1", name: "test", arguments:)
-
-  let decoder = {
-    use city <- decode.field("city", decode.string)
-    decode.success(city)
-  }
-
-  let assert Ok("Paris") = tool.parse_arguments(call, decoder)
-}
-
-pub fn parse_arguments_returns_error_for_invalid_decode_test() {
-  let assert Ok(arguments) = json.parse("123", decode.dynamic)
-  let call = tool.Call(id: "1", name: "test", arguments:)
-
-  let decoder = {
-    use city <- decode.field("city", decode.string)
-    decode.success(city)
-  }
-  let assert Error(tool.InvalidArguments(_)) =
-    tool.parse_arguments(call, decoder)
-}
-
 pub fn handler_decodes_arguments_test() {
   let weather_decoder = {
     use city <- decode.field("city", decode.string)

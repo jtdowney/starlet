@@ -43,6 +43,7 @@ import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/json.{type Json}
 import gleam/list
+import gleam/result
 import gleam/string
 
 /// A tool the model can call. Currently only function tools are supported.
@@ -52,7 +53,6 @@ pub type Definition {
 
 /// A tool invocation from the model's response.
 /// The `arguments` field contains the parsed JSON arguments as a Dynamic value.
-/// Use [`parse_arguments`](#parse_arguments) to extract typed values.
 pub type Call {
   Call(id: String, name: String, arguments: Dynamic)
 }
@@ -111,19 +111,6 @@ pub fn dispatch(handlers: List(#(String, Handler))) -> Handler {
   }
 }
 
-/// Decode the arguments from a tool call into a typed value.
-pub fn parse_arguments(
-  call: Call,
-  decoder: decode.Decoder(a),
-) -> Result(a, ToolError) {
-  case decode.run(call.arguments, decoder) {
-    Ok(value) -> Ok(value)
-    Error(errors) ->
-      InvalidArguments("Failed to decode: " <> string.inspect(errors))
-      |> Error
-  }
-}
-
 /// Formats a tool call for display, e.g. `get_weather({"city":"Paris"})`.
 /// Useful for logging and debugging.
 pub fn to_string(call: Call) -> String {
@@ -165,12 +152,15 @@ pub fn handler(
   run: fn(a) -> Result(Json, ToolError),
 ) -> #(String, Handler) {
   #(name, fn(call: Call) {
-    case parse_arguments(call, decoder) {
-      Ok(args) ->
-        case run(args) {
-          Ok(output) -> Ok(success(call, output))
-          Error(e) -> Error(e)
-        }
+    use args <- result.try(
+      decode.run(call.arguments, decoder)
+      |> result.map_error(fn(errors) {
+        InvalidArguments("Failed to decode: " <> string.inspect(errors))
+      }),
+    )
+
+    case run(args) {
+      Ok(output) -> Ok(success(call, output))
       Error(e) -> Error(e)
     }
   })
