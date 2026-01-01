@@ -36,7 +36,7 @@ pub fn main() {
 
 ## Features
 
-- **Provider-agnostic**: Swap between Ollama, OpenAI, Anthropic without changing your code
+- **Provider-agnostic**: Swap between Ollama, OpenAI, Anthropic, and Gemini without changing your code
 - **Type-safe**: Typestate pattern ensures correct API usage at compile time
 - **Conversational**: Chat state flows through the builder, maintaining history automatically
 - **Tool use**: Support for tool calls and function calling
@@ -102,3 +102,11 @@ let client = anthropic.new(api_key)
 ```
 
 Note: Anthropic requires `max_tokens` in every request. If not set via `starlet.max_tokens()`, a default of 4096 is used.
+
+### Gemini
+
+```gleam
+import starlet/gemini
+
+let client = gemini.new(api_key)
+```
