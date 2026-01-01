@@ -1,5 +1,5 @@
 name = "starlet"
-version = "1.0.0"
+version = "1.0.1"
 description = "An LLM interaction library that makes you feel like a star"
 licences = ["MIT"]
 repository = { type = "github", user = "jtdowney", repo = "starlet" }
