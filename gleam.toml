@@ -3,10 +3,6 @@ version = "1.0.0"
 description = "An LLM interaction library that makes you feel like a star"
 licences = ["MIT"]
 repository = { type = "github", user = "jtdowney", repo = "starlet" }
-internal_modules = [
-  "examples/*",
-  "starlet/internal/*"
-]
 
 [dependencies]
 gleam_stdlib = ">= 0.44.0 and < 2.0.0"
