@@ -1,6 +1,6 @@
 name = "starlet"
 version = "0.1.0"
-description = "An LLM interaction library for OpenAI/Anthropic/Ollama that makes you feel like a star"
+description = "An LLM interaction library that makes you feel like a star"
 licences = ["MIT"]
 repository = { type = "github", user = "jtdowney", repo = "starlet" }
 internal_modules = [
