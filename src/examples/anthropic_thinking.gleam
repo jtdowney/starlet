@@ -1,7 +1,7 @@
 import envoy
 import examples/utils
 import gleam/io
-import gleam/option
+import gleam/option.{Some}
 import gleam/result
 import starlet
 import starlet/anthropic
@@ -36,7 +36,7 @@ fn run_example(api_key: String) {
     use #(_chat, turn) <- result.try(starlet.send(chat))
 
     case anthropic.thinking(turn) {
-      option.Some(thinking) -> {
+      Some(thinking) -> {
         io.println("=== Claude's Thinking ===")
         io.println(thinking)
         io.println("")

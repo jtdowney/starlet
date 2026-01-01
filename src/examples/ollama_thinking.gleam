@@ -1,7 +1,7 @@
 import envoy
 import examples/utils
 import gleam/io
-import gleam/option
+import gleam/option.{Some}
 import gleam/result
 import starlet
 import starlet/ollama
@@ -31,7 +31,7 @@ fn run_example(base_url: String) {
     use #(_chat, turn) <- result.try(starlet.send(chat))
 
     case ollama.thinking(turn) {
-      option.Some(thinking) -> {
+      Some(thinking) -> {
         io.println("=== Model's Thinking ===")
         io.println(thinking)
         io.println("")

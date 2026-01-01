@@ -1,5 +1,5 @@
 import gleam/int
-import gleam/option
+import gleam/option.{Some}
 import starlet
 import starlet/tool
 
@@ -18,7 +18,7 @@ pub fn error_to_string(err: starlet.StarletError) -> String {
       }
     starlet.RateLimited(retry_after) ->
       case retry_after {
-        option.Some(seconds) ->
+        Some(seconds) ->
           "Rate limited, retry after " <> int.to_string(seconds) <> "s"
         option.None -> "Rate limited"
       }

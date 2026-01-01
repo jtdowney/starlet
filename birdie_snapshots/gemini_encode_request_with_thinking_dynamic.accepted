@@ -4,4 +4,4 @@ title: gemini encode request with thinking dynamic
 file: ./test/starlet/gemini_test.gleam
 test_name: encode_request_with_thinking_dynamic_test
 ---
-{"contents":[{"role":"user","parts":[{"text":"Think about this"}]}],"generationConfig":{"thinkingConfig":{"thinkingBudget":-1}}}
+{"contents":[{"role":"user","parts":[{"text":"Think about this"}]}],"generationConfig":{"thinkingConfig":{"thinkingBudget":-1,"includeThoughts":true}}}

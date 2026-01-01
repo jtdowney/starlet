@@ -1,7 +1,7 @@
 import envoy
 import examples/utils
 import gleam/io
-import gleam/option
+import gleam/option.{Some}
 import gleam/result
 import starlet
 import starlet/openai
@@ -33,7 +33,7 @@ fn run_example(api_key: String) {
     use #(_chat, turn) <- result.try(starlet.send(chat))
 
     case openai.reasoning_summary(turn) {
-      option.Some(summary) -> {
+      Some(summary) -> {
         io.println("=== GPT's Reasoning Summary ===")
         io.println(summary)
         io.println("")

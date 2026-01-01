@@ -1,5 +1,6 @@
 import envoy
 import gleam/json
+import gleam/option.{Some}
 import gleam/result
 import gleam/string
 import starlet
@@ -83,4 +84,22 @@ pub fn tool_calling_test() -> Nil {
   let response = starlet.text(turn)
 
   assert string.length(response) > 0
+}
+
+pub fn thinking_test() -> Nil {
+  use <- guard
+
+  let client = ollama.new("http://localhost:11434")
+
+  let chat =
+    starlet.chat(client, "qwen3:0.6b")
+    |> ollama.with_thinking(ollama.ThinkingEnabled)
+    |> starlet.user("What is the sum of all prime numbers between 1 and 20?")
+
+  let assert Ok(#(_chat, turn)) = starlet.send(chat)
+  let response = starlet.text(turn)
+
+  assert string.length(response) > 0
+  let assert Some(_) = ollama.thinking(turn)
+  Nil
 }

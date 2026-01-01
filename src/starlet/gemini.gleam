@@ -365,11 +365,23 @@ fn build_generation_config(req: Request, ext: Ext) -> Option(Json) {
       ..config
     ]
     Some(ThinkingDynamic) -> [
-      #("thinkingConfig", json.object([#("thinkingBudget", json.int(-1))])),
+      #(
+        "thinkingConfig",
+        json.object([
+          #("thinkingBudget", json.int(-1)),
+          #("includeThoughts", json.bool(True)),
+        ]),
+      ),
       ..config
     ]
     Some(ThinkingFixed(tokens)) -> [
-      #("thinkingConfig", json.object([#("thinkingBudget", json.int(tokens))])),
+      #(
+        "thinkingConfig",
+        json.object([
+          #("thinkingBudget", json.int(tokens)),
+          #("includeThoughts", json.bool(True)),
+        ]),
+      ),
       ..config
     ]
     None -> config
@@ -479,9 +491,9 @@ pub fn decode_response(
   body: String,
 ) -> Result(#(Response, Option(String)), StarletError) {
   let part_decoder =
-    decode.one_of(decode_text_part(), or: [
+    decode.one_of(decode_thought_part(), or: [
+      decode_text_part(),
       decode_function_call_part(),
-      decode_thought_part(),
       decode_skipped_part(),
     ])
 
@@ -530,8 +542,14 @@ fn decode_function_call_part() -> decode.Decoder(Part) {
 }
 
 fn decode_thought_part() -> decode.Decoder(Part) {
-  use thought <- decode.field("thought", decode.string)
-  decode.success(ThoughtPart(thought))
+  use is_thought <- decode.field("thought", decode.bool)
+  case is_thought {
+    True -> {
+      use text <- decode.field("text", decode.string)
+      decode.success(ThoughtPart(text))
+    }
+    False -> decode.failure(ThoughtPart(""), "thought is false")
+  }
 }
 
 fn decode_skipped_part() -> decode.Decoder(Part) {

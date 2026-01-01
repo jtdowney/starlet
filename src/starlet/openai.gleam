@@ -242,7 +242,10 @@ pub fn encode_request(req: Request, ext: Ext) -> Json {
       list.append(base, [
         #(
           "reasoning",
-          json.object([#("effort", encode_reasoning_effort(effort))]),
+          json.object([
+            #("effort", encode_reasoning_effort(effort)),
+            #("summary", json.string("auto")),
+          ]),
         ),
       ])
     None -> base
@@ -442,7 +445,7 @@ fn decode_function_call_item() -> decode.Decoder(OutputItem) {
 fn decode_reasoning_summary_item() -> decode.Decoder(OutputItem) {
   use type_ <- decode.field("type", decode.string)
   case type_ {
-    "reasoning_summary" -> {
+    "reasoning" -> {
       use summary <- decode.field(
         "summary",
         decode.list(decode.at(["text"], decode.string)),
@@ -450,7 +453,7 @@ fn decode_reasoning_summary_item() -> decode.Decoder(OutputItem) {
       let text = string.join(summary, "\n")
       decode.success(ReasoningSummaryItem(text))
     }
-    _ -> decode.failure(ReasoningSummaryItem(""), "reasoning_summary")
+    _ -> decode.failure(ReasoningSummaryItem(""), "reasoning")
   }
 }
 

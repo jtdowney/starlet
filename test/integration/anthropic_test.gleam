@@ -1,6 +1,7 @@
 import envoy
 import gleam/dynamic/decode
 import gleam/json
+import gleam/option.{Some}
 import gleam/result
 import gleam/string
 import jscheam/schema
@@ -127,4 +128,26 @@ pub fn json_output_test() -> Nil {
   assert name == "John Smith"
   assert age == 30
   assert city == "Paris"
+}
+
+pub fn thinking_test() -> Nil {
+  use <- guard
+
+  let api_key = envoy.get("ANTHROPIC_API_KEY") |> result.unwrap("")
+  let client = anthropic.new(api_key)
+
+  let assert Ok(chat) =
+    starlet.chat(client, "claude-haiku-4-5-20251001")
+    |> anthropic.with_thinking(16_384)
+  let chat =
+    chat
+    |> starlet.max_tokens(32_000)
+    |> starlet.user("What is the sum of all prime numbers between 1 and 20?")
+
+  let assert Ok(#(_chat, turn)) = starlet.send(chat)
+  let response = starlet.text(turn)
+
+  assert string.length(response) > 0
+  let assert Some(_) = anthropic.thinking(turn)
+  Nil
 }

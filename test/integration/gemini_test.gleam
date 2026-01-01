@@ -6,11 +6,11 @@ import gleam/result
 import gleam/string
 import jscheam/schema
 import starlet
-import starlet/openai
+import starlet/gemini
 import starlet/tool
 
 fn guard(next: fn() -> Nil) -> Nil {
-  let run = envoy.get("OPENAI_INTEGRATION_TEST") |> result.unwrap("false")
+  let run = envoy.get("GEMINI_INTEGRATION_TEST") |> result.unwrap("false")
   case run {
     "1" | "true" -> next()
     _ -> Nil
@@ -20,11 +20,11 @@ fn guard(next: fn() -> Nil) -> Nil {
 pub fn simple_chat_test() -> Nil {
   use <- guard
 
-  let api_key = envoy.get("OPENAI_API_KEY") |> result.unwrap("")
-  let client = openai.new(api_key)
+  let api_key = envoy.get("GEMINI_API_KEY") |> result.unwrap("")
+  let client = gemini.new(api_key)
 
   let chat =
-    starlet.chat(client, "gpt-5-nano")
+    starlet.chat(client, "gemini-2.5-flash")
     |> starlet.system("Reply with exactly one word.")
     |> starlet.user("Say hello")
 
@@ -37,8 +37,8 @@ pub fn simple_chat_test() -> Nil {
 pub fn tool_calling_test() -> Nil {
   use <- guard
 
-  let api_key = envoy.get("OPENAI_API_KEY") |> result.unwrap("")
-  let client = openai.new(api_key)
+  let api_key = envoy.get("GEMINI_API_KEY") |> result.unwrap("")
+  let client = gemini.new(api_key)
 
   let weather_tool =
     tool.function(
@@ -63,7 +63,7 @@ pub fn tool_calling_test() -> Nil {
     )
 
   let chat =
-    starlet.chat(client, "gpt-5-nano")
+    starlet.chat(client, "gemini-2.5-flash")
     |> starlet.system(
       "You are a helpful assistant. Use the get_weather tool when asked about weather.",
     )
@@ -93,8 +93,8 @@ pub fn tool_calling_test() -> Nil {
 pub fn json_output_test() -> Nil {
   use <- guard
 
-  let api_key = envoy.get("OPENAI_API_KEY") |> result.unwrap("")
-  let client = openai.new(api_key)
+  let api_key = envoy.get("GEMINI_API_KEY") |> result.unwrap("")
+  let client = gemini.new(api_key)
 
   let person_schema =
     schema.object([
@@ -102,10 +102,9 @@ pub fn json_output_test() -> Nil {
       schema.prop("age", schema.integer()),
       schema.prop("city", schema.string()),
     ])
-    |> schema.disallow_additional_props()
 
   let chat =
-    starlet.chat(client, "gpt-5-nano")
+    starlet.chat(client, "gemini-2.5-flash")
     |> starlet.system(
       "You are a helpful assistant that extracts structured data.",
     )
@@ -130,21 +129,23 @@ pub fn json_output_test() -> Nil {
   assert city == "Paris"
 }
 
-pub fn reasoning_test() -> Nil {
+pub fn thinking_test() -> Nil {
   use <- guard
 
-  let api_key = envoy.get("OPENAI_API_KEY") |> result.unwrap("")
-  let client = openai.new(api_key)
+  let api_key = envoy.get("GEMINI_API_KEY") |> result.unwrap("")
+  let client = gemini.new(api_key)
 
+  let assert Ok(chat) =
+    starlet.chat(client, "gemini-2.5-flash")
+    |> gemini.with_thinking(gemini.ThinkingDynamic)
   let chat =
-    starlet.chat(client, "gpt-5-nano")
-    |> openai.with_reasoning(openai.ReasoningHigh)
+    chat
     |> starlet.user("What is the sum of all prime numbers between 1 and 20?")
 
   let assert Ok(#(_chat, turn)) = starlet.send(chat)
   let response = starlet.text(turn)
 
   assert string.length(response) > 0
-  let assert Some(_) = openai.reasoning_summary(turn)
+  let assert Some(_) = gemini.thinking(turn)
   Nil
 }

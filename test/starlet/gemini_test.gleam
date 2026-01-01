@@ -386,7 +386,10 @@ pub fn decode_response_with_thinking_test() {
                 #(
                   "parts",
                   json.preprocessed_array([
-                    json.object([#("thought", json.string("Let me think..."))]),
+                    json.object([
+                      #("text", json.string("Let me think...")),
+                      #("thought", json.bool(True)),
+                    ]),
                     json.object([#("text", json.string("The answer is 42"))]),
                   ]),
                 ),

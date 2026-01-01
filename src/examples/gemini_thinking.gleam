@@ -1,7 +1,7 @@
 import envoy
 import examples/utils
 import gleam/io
-import gleam/option
+import gleam/option.{Some}
 import gleam/result
 import starlet
 import starlet/gemini
@@ -33,7 +33,7 @@ fn run_example(api_key: String) {
     use #(_chat, turn) <- result.try(starlet.send(chat))
 
     case gemini.thinking(turn) {
-      option.Some(thinking) -> {
+      Some(thinking) -> {
         io.println("=== Gemini's Thinking ===")
         io.println(thinking)
         io.println("")
