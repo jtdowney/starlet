@@ -22,9 +22,18 @@
 //// ## Handling Tool Calls
 ////
 //// ```gleam
+//// let city_decoder = {
+////   use city <- decode.field("city", decode.string)
+////   decode.success(city)
+//// }
+////
 //// let dispatcher = tool.dispatch([
-////   tool.handler("get_weather", fn(args) {
-////     Ok(json.object([#("temp", json.int(72))]))
+////   tool.handler("get_weather", city_decoder, fn(city) {
+////     let temp = case city {
+////       "Tokyo" -> 18
+////       _ -> 22
+////     }
+////     Ok(json.object([#("temp", json.int(temp))]))
 ////   }),
 //// ])
 //// ```
@@ -122,9 +131,9 @@ pub fn to_string(call: Call) -> String {
   call.name <> "(" <> args <> ")"
 }
 
-/// Create a handler tuple from name and a simpler function.
-/// The function receives the arguments as a Dynamic value.
-pub fn handler(
+/// Create a handler tuple from name and a function that receives Dynamic arguments.
+/// For most cases, prefer `handler` which provides automatic argument decoding.
+pub fn dynamic_handler(
   name: String,
   run: fn(Dynamic) -> Result(Json, ToolError),
 ) -> #(String, Handler) {
@@ -145,12 +154,12 @@ pub fn handler(
 ///   decode.success(city)
 /// }
 ///
-/// let #(name, handler) =
-///   tool.typed_handler("get_weather", decoder, fn(city) {
+/// let #(name, run) =
+///   tool.handler("get_weather", decoder, fn(city) {
 ///     Ok(json.string("Weather in " <> city))
 ///   })
 /// ```
-pub fn typed_handler(
+pub fn handler(
   name: String,
   decoder: decode.Decoder(a),
   run: fn(a) -> Result(Json, ToolError),

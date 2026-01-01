@@ -43,45 +43,39 @@ fn run_example(api_key: String) {
       ]),
     )
 
-  let calculator_tool =
+  let multiply_tool =
     tool.function(
-      name: "calculate",
-      description: "Perform a mathematical calculation",
+      name: "multiply",
+      description: "Multiply two integers together",
       parameters: json.object([
         #("type", json.string("object")),
         #(
           "properties",
           json.object([
             #(
-              "expression",
+              "a",
               json.object([
-                #("type", json.string("string")),
-                #(
-                  "description",
-                  json.string("A math expression like '2 + 2' or '10 * 5'"),
-                ),
+                #("type", json.string("integer")),
+                #("description", json.string("The first number")),
+              ]),
+            ),
+            #(
+              "b",
+              json.object([
+                #("type", json.string("integer")),
+                #("description", json.string("The second number")),
               ]),
             ),
           ]),
         ),
-        #("required", json.array(["expression"], json.string)),
+        #("required", json.array(["a", "b"], json.string)),
       ]),
     )
 
   let dispatcher =
     tool.dispatch([
-      tool.handler("get_weather", fn(_args) {
-        Ok(
-          json.object([
-            #("temperature", json.string("22°C")),
-            #("condition", json.string("Sunny")),
-            #("humidity", json.string("45%")),
-          ]),
-        )
-      }),
-      tool.handler("calculate", fn(_args) {
-        Ok(json.object([#("result", json.int(42))]))
-      }),
+      tool.handler("get_weather", utils.weather_decoder(), utils.get_weather),
+      tool.handler("multiply", utils.multiply_decoder(), utils.multiply),
     ])
 
   let result = {
@@ -92,9 +86,9 @@ fn run_example(api_key: String) {
     let chat =
       starlet.chat(client, "claude-haiku-4-5-20251001")
       |> starlet.system(
-        "You are a helpful assistant. Use tools when asked about weather or calculations.",
+        "You are a helpful assistant. Use tools when asked about weather or multiplication.",
       )
-      |> starlet.with_tools([weather_tool, calculator_tool])
+      |> starlet.with_tools([weather_tool, multiply_tool])
       |> starlet.user(msg1)
 
     io.println("User: " <> msg1)

@@ -78,6 +78,7 @@ pub fn main() {
 ### Tool Calling
 
 ```gleam
+import gleam/dynamic/decode
 import gleam/json
 import gleam/result
 import starlet
@@ -100,11 +101,25 @@ pub fn main() {
       ]),
     )
 
+  // Decoder for the tool arguments
+  let city_decoder = {
+    use city <- decode.field("city", decode.string)
+    decode.success(city)
+  }
+
   // Create a handler that executes tools
   let dispatcher =
     tool.dispatch([
-      tool.handler("get_weather", fn(_args) {
-        Ok(json.object([#("temp", json.int(22)), #("condition", json.string("sunny"))]))
+      tool.handler("get_weather", city_decoder, fn(city) {
+        let temp = case city {
+          "Tokyo" -> 18
+          "Paris" -> 22
+          _ -> 20
+        }
+        Ok(json.object([
+          #("temp", json.int(temp)),
+          #("condition", json.string("sunny")),
+        ]))
       }),
     ])
 

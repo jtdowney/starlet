@@ -27,9 +27,9 @@ pub fn dispatch_returns_not_found_for_unknown_test() {
   let assert Error(tool.NotFound("unknown")) = handler(call)
 }
 
-pub fn handler_wraps_result_in_success_test() {
+pub fn dynamic_handler_wraps_result_in_success_test() {
   let #(_name, run) =
-    tool.handler("my_tool", fn(_args) { Ok(json.string("ok")) })
+    tool.dynamic_handler("my_tool", fn(_args) { Ok(json.string("ok")) })
 
   let call = tool.Call(id: "call_1", name: "my_tool", arguments: dynamic.nil())
   let assert Ok(result) = run(call)
@@ -37,9 +37,11 @@ pub fn handler_wraps_result_in_success_test() {
   assert result.name == "my_tool"
 }
 
-pub fn handler_propagates_error_test() {
+pub fn dynamic_handler_propagates_error_test() {
   let #(_name, run) =
-    tool.handler("my_tool", fn(_args) { Error(tool.ExecutionFailed("boom")) })
+    tool.dynamic_handler("my_tool", fn(_args) {
+      Error(tool.ExecutionFailed("boom"))
+    })
 
   let call = tool.Call(id: "call_1", name: "my_tool", arguments: dynamic.nil())
   let assert Error(tool.ExecutionFailed("boom")) = run(call)
@@ -72,14 +74,14 @@ pub fn parse_arguments_returns_error_for_invalid_decode_test() {
     tool.parse_arguments(call, decoder)
 }
 
-pub fn typed_handler_decodes_arguments_test() {
+pub fn handler_decodes_arguments_test() {
   let weather_decoder = {
     use city <- decode.field("city", decode.string)
     decode.success(city)
   }
 
   let #(_name, handler) =
-    tool.typed_handler("get_weather", weather_decoder, fn(city) {
+    tool.handler("get_weather", weather_decoder, fn(city) {
       Ok(json.string("Weather in " <> city <> ": sunny"))
     })
 
@@ -94,14 +96,14 @@ pub fn typed_handler_decodes_arguments_test() {
   assert result.name == "get_weather"
 }
 
-pub fn typed_handler_returns_invalid_arguments_on_decode_error_test() {
+pub fn handler_returns_invalid_arguments_on_decode_error_test() {
   let weather_decoder = {
     use city <- decode.field("city", decode.string)
     decode.success(city)
   }
 
   let #(_name, handler) =
-    tool.typed_handler("get_weather", weather_decoder, fn(_city) {
+    tool.handler("get_weather", weather_decoder, fn(_city) {
       Ok(json.string("should not reach"))
     })
 
@@ -114,11 +116,11 @@ pub fn typed_handler_returns_invalid_arguments_on_decode_error_test() {
   let assert Error(tool.InvalidArguments(_)) = handler(call)
 }
 
-pub fn typed_handler_propagates_execution_error_test() {
+pub fn handler_propagates_execution_error_test() {
   let decoder = decode.string
 
   let #(_name, handler) =
-    tool.typed_handler("failing", decoder, fn(_val) {
+    tool.handler("failing", decoder, fn(_val) {
       Error(tool.ExecutionFailed("something broke"))
     })
 
