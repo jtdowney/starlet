@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: encode request with tool result
+file: ./test/starlet/ollama_test.gleam
+test_name: encode_request_with_tool_result_test
+---
+{"model":"qwen3","messages":[{"role":"user","content":"What's the weather in Paris?"},{"role":"assistant","content":"","tool_calls":[{"id":"call_123","function":{"name":"get_weather","arguments":{"city":"Paris"}}}]},{"role":"tool","name":"get_weather","content":"{\"temp\":22,\"condition\":\"sunny\"}"}],"stream":false}

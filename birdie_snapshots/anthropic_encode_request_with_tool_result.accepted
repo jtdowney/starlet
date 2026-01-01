@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: anthropic encode request with tool result
+file: ./test/starlet/anthropic_test.gleam
+test_name: encode_request_with_tool_result_test
+---
+{"model":"claude-haiku-4-5-20251001","max_tokens":4096,"messages":[{"role":"user","content":"What's the weather in Paris?"},{"role":"assistant","content":[{"type":"tool_use","id":"toolu_123","name":"get_weather","input":{"city":"Paris"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_123","content":"{\"temp\":22}"}]}]}

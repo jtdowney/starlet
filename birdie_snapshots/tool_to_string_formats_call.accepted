@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: tool to_string formats call
+file: ./test/starlet/tool_test.gleam
+test_name: to_string_formats_call_test
+---
+get_weather({"city":"Paris"})

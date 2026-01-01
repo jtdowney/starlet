@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: encode request with conversation
+file: ./test/starlet/ollama_test.gleam
+test_name: encode_request_with_conversation_test
+---
+{"model":"qwen3","messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hi!"},{"role":"user","content":"How are you?"}],"stream":false}

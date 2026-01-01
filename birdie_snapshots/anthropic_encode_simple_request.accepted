@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: anthropic encode simple request
+file: ./test/starlet/anthropic_test.gleam
+test_name: encode_simple_request_test
+---
+{"model":"claude-haiku-4-5-20251001","max_tokens":4096,"messages":[{"role":"user","content":"Hello"}]}

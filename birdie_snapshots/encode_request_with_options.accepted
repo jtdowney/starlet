@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: encode request with options
+file: ./test/starlet/ollama_test.gleam
+test_name: encode_request_with_options_test
+---
+{"model":"qwen3","messages":[{"role":"user","content":"Hello"}],"stream":false,"options":{"num_predict":1000,"temperature":0.7}}

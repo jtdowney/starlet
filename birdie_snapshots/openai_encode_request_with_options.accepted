@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: openai encode request with options
+file: ./test/starlet/openai_test.gleam
+test_name: encode_request_with_options_test
+---
+{"model":"gpt-5-nano","input":[{"role":"user","content":"Hello"}],"temperature":0.7,"max_output_tokens":1000}

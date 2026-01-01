@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: encode simple request
+file: ./test/starlet/ollama_test.gleam
+test_name: encode_simple_request_test
+---
+{"model":"qwen3","messages":[{"role":"user","content":"Hello"}],"stream":false}

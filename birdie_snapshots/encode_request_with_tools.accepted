@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: encode request with tools
+file: ./test/starlet/ollama_test.gleam
+test_name: encode_request_with_tools_test
+---
+{"model":"qwen3","messages":[{"role":"user","content":"What's the weather in Paris?"}],"stream":false,"tools":[{"type":"function","function":{"name":"get_weather","description":"Get the current weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}]}

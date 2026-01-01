@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: anthropic encode request with thinking
+file: ./test/starlet/anthropic_test.gleam
+test_name: encode_request_with_thinking_test
+---
+{"model":"claude-haiku-4-5-20251001","max_tokens":32000,"messages":[{"role":"user","content":"Think step by step"}],"thinking":{"type":"enabled","budget_tokens":16384}}

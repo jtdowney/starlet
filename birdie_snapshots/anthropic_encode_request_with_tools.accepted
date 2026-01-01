@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: anthropic encode request with tools
+file: ./test/starlet/anthropic_test.gleam
+test_name: encode_request_with_tools_test
+---
+{"model":"claude-haiku-4-5-20251001","max_tokens":4096,"messages":[{"role":"user","content":"What's the weather?"}],"tools":[{"name":"get_weather","description":"Get current weather","input_schema":{"type":"object","properties":{"city":{"type":"string"}}}}]}

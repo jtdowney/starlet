@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: openai encode request with previous response id
+file: ./test/starlet/openai_test.gleam
+test_name: encode_request_with_previous_response_id_test
+---
+{"model":"gpt-5-nano","input":[{"role":"user","content":"Follow up"}],"previous_response_id":"resp_abc123"}

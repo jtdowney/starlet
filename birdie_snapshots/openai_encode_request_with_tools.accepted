@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: openai encode request with tools
+file: ./test/starlet/openai_test.gleam
+test_name: encode_request_with_tools_test
+---
+{"model":"gpt-5-nano","input":[{"role":"user","content":"What's the weather?"}],"tools":[{"type":"function","name":"get_weather","description":"Get current weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}]}

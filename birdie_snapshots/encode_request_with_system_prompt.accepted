@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: encode request with system prompt
+file: ./test/starlet/ollama_test.gleam
+test_name: encode_request_with_system_prompt_test
+---
+{"model":"qwen3","messages":[{"role":"system","content":"Be helpful"},{"role":"user","content":"Hello"}],"stream":false}

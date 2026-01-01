@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: ollama encode request with thinking enabled
+file: ./test/starlet/ollama_test.gleam
+test_name: encode_request_with_thinking_enabled_test
+---
+{"model":"deepseek-r1","messages":[{"role":"user","content":"Think step by step"}],"stream":false,"think":true}

@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: openai encode request with reasoning effort
+file: ./test/starlet/openai_test.gleam
+test_name: encode_request_with_reasoning_effort_test
+---
+{"model":"gpt-5-nano","input":[{"role":"user","content":"Think hard about this"}],"reasoning":{"effort":"high"}}

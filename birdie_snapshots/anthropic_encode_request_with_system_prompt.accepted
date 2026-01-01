@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: anthropic encode request with system prompt
+file: ./test/starlet/anthropic_test.gleam
+test_name: encode_request_with_system_prompt_test
+---
+{"system":"Be helpful","model":"claude-haiku-4-5-20251001","max_tokens":4096,"messages":[{"role":"user","content":"Hello"}]}
