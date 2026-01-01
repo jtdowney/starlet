@@ -1,8 +1,10 @@
 import envoy
+import gleam/dynamic/decode
 import gleam/json
 import gleam/option.{Some}
 import gleam/result
 import gleam/string
+import jscheam/schema
 import starlet
 import starlet/ollama
 import starlet/tool
@@ -102,4 +104,43 @@ pub fn thinking_test() -> Nil {
   assert string.length(response) > 0
   let assert Some(_) = ollama.thinking(turn)
   Nil
+}
+
+pub fn json_output_test() -> Nil {
+  use <- guard
+
+  let client = ollama.new("http://localhost:11434")
+
+  let person_schema =
+    schema.object([
+      schema.prop("name", schema.string()),
+      schema.prop("age", schema.integer()),
+      schema.prop("city", schema.string()),
+    ])
+    |> schema.disallow_additional_props()
+
+  let chat =
+    starlet.chat(client, "qwen3:0.6b")
+    |> starlet.system(
+      "You are a helpful assistant that extracts structured data.",
+    )
+    |> starlet.with_json_output(person_schema)
+    |> starlet.user(
+      "Extract the person info: John Smith is 30 years old and lives in Paris.",
+    )
+
+  let assert Ok(#(_chat, turn)) = starlet.send(chat)
+  let json_string = starlet.json(turn)
+
+  let person_decoder = {
+    use name <- decode.field("name", decode.string)
+    use age <- decode.field("age", decode.int)
+    use city <- decode.field("city", decode.string)
+    decode.success(#(name, age, city))
+  }
+
+  let assert Ok(#(name, age, city)) = json.parse(json_string, person_decoder)
+  assert name == "John Smith"
+  assert age == 30
+  assert city == "Paris"
 }

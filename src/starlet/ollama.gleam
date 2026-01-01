@@ -198,6 +198,11 @@ pub fn encode_request(req: Request, ext: Ext) -> Json {
     None -> base
   }
 
+  let base = case req.json_schema {
+    Some(schema) -> list.append(base, [#("format", schema)])
+    None -> base
+  }
+
   json.object(base)
 }
 

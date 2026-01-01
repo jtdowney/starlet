@@ -21,7 +21,7 @@ fn run_example(base_url: String) {
       "What is the sum of all prime numbers between 1 and 20? Think through this step by step."
 
     let chat =
-      starlet.chat(client, "gpt-oss:20b")
+      starlet.chat(client, "qwen3:0.6b")
       |> ollama.with_thinking(ollama.ThinkingEnabled)
       |> starlet.user(msg)
 

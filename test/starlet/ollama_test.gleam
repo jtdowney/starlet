@@ -403,3 +403,41 @@ pub fn encode_request_with_thinking_effort_test() {
   |> json.to_string
   |> birdie.snap("ollama encode request with thinking high")
 }
+
+pub fn encode_request_with_json_schema_test() {
+  let schema =
+    json.object([
+      #("type", json.string("object")),
+      #(
+        "properties",
+        json.object([
+          #("name", json.object([#("type", json.string("string"))])),
+          #("capital", json.object([#("type", json.string("string"))])),
+          #(
+            "languages",
+            json.object([
+              #("type", json.string("array")),
+              #("items", json.object([#("type", json.string("string"))])),
+            ]),
+          ),
+        ]),
+      ),
+      #("required", json.array(["name", "capital", "languages"], json.string)),
+    ])
+
+  let req =
+    Request(
+      model: "qwen3",
+      system_prompt: None,
+      messages: [UserMessage("Tell me about France")],
+      tools: [],
+      temperature: None,
+      max_tokens: None,
+      json_schema: Some(schema),
+      timeout_ms: 60_000,
+    )
+
+  ollama.encode_request(req, default_ext())
+  |> json.to_string
+  |> birdie.snap("ollama encode request with json schema")
+}

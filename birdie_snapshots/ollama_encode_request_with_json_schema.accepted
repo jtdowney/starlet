@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: ollama encode request with json schema
+file: ./test/starlet/ollama_test.gleam
+test_name: encode_request_with_json_schema_test
+---
+{"model":"qwen3","messages":[{"role":"user","content":"Tell me about France"}],"stream":false,"format":{"type":"object","properties":{"name":{"type":"string"},"capital":{"type":"string"},"languages":{"type":"array","items":{"type":"string"}}},"required":["name","capital","languages"]}}
