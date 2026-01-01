@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: gemini encode request with tool result
+file: ./test/starlet/gemini_test.gleam
+test_name: encode_request_with_tool_result_test
+---
+{"contents":[{"role":"user","parts":[{"text":"What's the weather in Paris?"}]},{"role":"model","parts":[{"functionCall":{"name":"get_weather","args":{"city":"Paris"}}}]},{"role":"user","parts":[{"functionResponse":{"name":"get_weather","response":{"result":"{\"temp\":22}"}}}]}]}

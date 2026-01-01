@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: gemini encode request with thinking
+file: ./test/starlet/gemini_test.gleam
+test_name: encode_request_with_thinking_test
+---
+{"contents":[{"role":"user","parts":[{"text":"Think about this"}]}],"generationConfig":{"thinkingConfig":{"thinkingBudget":2048}}}
