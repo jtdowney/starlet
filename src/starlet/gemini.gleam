@@ -289,7 +289,11 @@ fn build_contents(messages: List(Message)) -> List(Json) {
             ])
           }
         }
-      ToolResultMessage(_call_id, name, content) ->
+      ToolResultMessage(_call_id, name, content) -> {
+        let response = case json.parse(content, decode.dynamic) {
+          Ok(parsed) -> tool.dynamic_to_json(parsed)
+          Error(_) -> json.object([#("result", json.string(content))])
+        }
         json.object([
           #("role", json.string("user")),
           #(
@@ -301,10 +305,7 @@ fn build_contents(messages: List(Message)) -> List(Json) {
                     "functionResponse",
                     json.object([
                       #("name", json.string(name)),
-                      #(
-                        "response",
-                        json.object([#("result", json.string(content))]),
-                      ),
+                      #("response", response),
                     ]),
                   ),
                 ]),
@@ -313,6 +314,7 @@ fn build_contents(messages: List(Message)) -> List(Json) {
             ),
           ),
         ])
+      }
     }
   })
 }
@@ -351,7 +353,7 @@ fn build_generation_config(req: Request, ext: Ext) -> Option(Json) {
   let config = case req.json_schema {
     Some(schema) -> [
       #("responseMimeType", json.string("application/json")),
-      #("responseJsonSchema", schema),
+      #("responseSchema", schema),
       ..config
     ]
     None -> config

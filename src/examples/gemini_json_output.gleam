@@ -39,7 +39,6 @@ fn run_example(api_key: String) {
       schema.prop("age", schema.integer()),
       schema.prop("city", schema.string()),
     ])
-    |> schema.disallow_additional_props()
 
   let result = {
     let msg =
