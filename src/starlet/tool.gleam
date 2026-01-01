@@ -43,7 +43,7 @@ pub type Definition {
 
 /// A tool invocation from the model's response.
 /// The `arguments` field contains the parsed JSON arguments as a Dynamic value.
-/// Use `decode.run(call.arguments, your_decoder)` to extract typed values.
+/// Use [`parse_arguments`](#parse_arguments) to extract typed values.
 pub type Call {
   Call(id: String, name: String, arguments: Dynamic)
 }

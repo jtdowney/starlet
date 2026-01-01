@@ -61,6 +61,7 @@ pub type Thinking {
 }
 
 /// Ollama provider extension type for thinking mode.
+@internal
 pub type Ext {
   Ext(
     /// Thinking mode configuration.

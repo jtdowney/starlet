@@ -56,6 +56,7 @@ pub type ThinkingBudget {
 }
 
 /// Gemini provider extension type.
+@internal
 pub type Ext {
   Ext(
     /// Thinking budget configuration.

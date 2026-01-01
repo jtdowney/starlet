@@ -47,6 +47,7 @@ import starlet/internal/http as internal_http
 import starlet/tool
 
 /// Result of decoding an OpenAI response, includes the response ID.
+@internal
 pub type DecodedResponse {
   DecodedResponse(
     response: Response,
@@ -70,6 +71,7 @@ pub type ReasoningEffort {
 }
 
 /// OpenAI provider extension type for server-side conversation state and reasoning.
+@internal
 pub type Ext {
   Ext(
     /// The ID of the last response, used for continuation.

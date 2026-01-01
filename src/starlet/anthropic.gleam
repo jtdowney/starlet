@@ -57,6 +57,7 @@ const default_max_tokens = 4096
 const anthropic_version = "2023-06-01"
 
 /// Anthropic provider extension type for extended thinking.
+@internal
 pub type Ext {
   Ext(
     /// Token budget for extended thinking (min 1024).
