@@ -1,11 +1,11 @@
 import gleam/int
 import gleam/list
 import gleam/option.{Some}
-import gleeunit
 import starlet.{Decode, Response, Transport}
+import unitest
 
 pub fn main() -> Nil {
-  gleeunit.main()
+  unitest.main()
 }
 
 pub fn turn_text_accessor_test() {
