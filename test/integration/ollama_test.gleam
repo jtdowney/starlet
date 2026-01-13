@@ -1,24 +1,15 @@
-import envoy
 import gleam/dynamic/decode
 import gleam/json
 import gleam/option.{Some}
-import gleam/result
 import gleam/string
 import jscheam/schema
 import starlet
 import starlet/ollama
 import starlet/tool
-
-fn guard(next: fn() -> Nil) -> Nil {
-  let run = envoy.get("OLLAMA_INTEGRATION_TEST") |> result.unwrap("false")
-  case run {
-    "1" | "true" -> next()
-    _ -> Nil
-  }
-}
+import unitest
 
 pub fn simple_chat_test() -> Nil {
-  use <- guard
+  use <- unitest.tag("integration")
 
   let client = ollama.new("http://localhost:11434")
 
@@ -34,7 +25,7 @@ pub fn simple_chat_test() -> Nil {
 }
 
 pub fn tool_calling_test() -> Nil {
-  use <- guard
+  use <- unitest.tag("integration")
 
   let client = ollama.new("http://localhost:11434")
 
@@ -89,7 +80,7 @@ pub fn tool_calling_test() -> Nil {
 }
 
 pub fn thinking_test() -> Nil {
-  use <- guard
+  use <- unitest.tag("integration")
 
   let client = ollama.new("http://localhost:11434")
 
@@ -107,7 +98,7 @@ pub fn thinking_test() -> Nil {
 }
 
 pub fn json_output_test() -> Nil {
-  use <- guard
+  use <- unitest.tag("integration")
 
   let client = ollama.new("http://localhost:11434")
 

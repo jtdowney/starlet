@@ -5,7 +5,9 @@ import starlet.{Decode, Response, Transport}
 import unitest
 
 pub fn main() -> Nil {
-  unitest.main()
+  unitest.run(
+    unitest.Options(..unitest.default_options(), ignored_tags: ["integration"]),
+  )
 }
 
 pub fn turn_text_accessor_test() {

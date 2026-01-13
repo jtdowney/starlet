@@ -8,17 +8,10 @@ import jscheam/schema
 import starlet
 import starlet/anthropic
 import starlet/tool
-
-fn guard(next: fn() -> Nil) -> Nil {
-  let run = envoy.get("ANTHROPIC_INTEGRATION_TEST") |> result.unwrap("false")
-  case run {
-    "1" | "true" -> next()
-    _ -> Nil
-  }
-}
+import unitest
 
 pub fn simple_chat_test() -> Nil {
-  use <- guard
+  use <- unitest.tag("integration")
 
   let api_key = envoy.get("ANTHROPIC_API_KEY") |> result.unwrap("")
   let client = anthropic.new(api_key)
@@ -35,7 +28,7 @@ pub fn simple_chat_test() -> Nil {
 }
 
 pub fn tool_calling_test() -> Nil {
-  use <- guard
+  use <- unitest.tag("integration")
 
   let api_key = envoy.get("ANTHROPIC_API_KEY") |> result.unwrap("")
   let client = anthropic.new(api_key)
@@ -91,7 +84,7 @@ pub fn tool_calling_test() -> Nil {
 }
 
 pub fn json_output_test() -> Nil {
-  use <- guard
+  use <- unitest.tag("integration")
 
   let api_key = envoy.get("ANTHROPIC_API_KEY") |> result.unwrap("")
   let client = anthropic.new(api_key)
@@ -131,7 +124,7 @@ pub fn json_output_test() -> Nil {
 }
 
 pub fn thinking_test() -> Nil {
-  use <- guard
+  use <- unitest.tag("integration")
 
   let api_key = envoy.get("ANTHROPIC_API_KEY") |> result.unwrap("")
   let client = anthropic.new(api_key)
