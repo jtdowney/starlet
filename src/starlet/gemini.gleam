@@ -45,6 +45,8 @@ import starlet.{
 import starlet/internal/http as internal_http
 import starlet/tool
 
+const default_host = "generativelanguage.googleapis.com"
+
 /// Thinking budget for Gemini 2.5+ models.
 pub type ThinkingBudget {
   /// Disable thinking entirely
@@ -128,40 +130,35 @@ pub fn list_models_with_base_url(
   api_key: String,
   base_url: String,
 ) -> Result(List(Model), StarletError) {
-  case uri.parse(base_url) {
-    Ok(base_uri) -> {
-      let scheme = case option.unwrap(base_uri.scheme, "https") {
-        "http" -> http.Http
-        _ -> http.Https
-      }
-      let host =
-        option.unwrap(base_uri.host, "generativelanguage.googleapis.com")
-      let base_path = base_uri.path
+  use base_uri <- result.try(
+    uri.parse(base_url)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      let http_request =
-        request.new()
-        |> request.set_method(http.Get)
-        |> request.set_scheme(scheme)
-        |> request.set_host(host)
-        |> internal_http.set_optional_port(base_uri.port)
-        |> request.set_path(base_path <> "/v1beta/models")
-        |> request.set_header("x-goog-api-key", api_key)
+  let base_uri = internal_http.with_defaults(base_uri, "https", default_host)
+  use http_request <- result.try(
+    request.from_uri(base_uri)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      case httpc.send(http_request) {
-        Ok(response) ->
-          case response.status {
-            200 -> decode_models(response.body)
-            429 -> {
-              let retry_after =
-                internal_http.parse_retry_after(response.headers)
-              Error(starlet.RateLimited(retry_after))
-            }
-            status -> Error(starlet.Http(status: status, body: response.body))
-          }
-        Error(err) -> Error(starlet.Transport(string.inspect(err)))
-      }
+  let http_request =
+    http_request
+    |> request.set_method(http.Get)
+    |> request.set_path(base_uri.path <> "/v1beta/models")
+    |> request.set_header("x-goog-api-key", api_key)
+
+  use response <- result.try(
+    httpc.send(http_request)
+    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
+  )
+
+  case response.status {
+    200 -> decode_models(response.body)
+    429 -> {
+      let retry_after = internal_http.parse_retry_after(response.headers)
+      Error(starlet.RateLimited(retry_after))
     }
-    Error(_) -> Error(starlet.Transport("Invalid base URL: " <> base_url))
+    status -> Error(starlet.Http(status: status, body: response.body))
   }
 }
 
@@ -181,13 +178,10 @@ fn decode_models(body: String) -> Result(List(Model), StarletError) {
     decode.success(models)
   }
 
-  case json.parse(body, decoder) {
-    Ok(models) -> Ok(models)
-    Error(err) ->
-      Error(starlet.Decode(
-        "Failed to decode Gemini models: " <> string.inspect(err),
-      ))
-  }
+  json.parse(body, decoder)
+  |> result.map_error(fn(err) {
+    starlet.Decode("Failed to decode Gemini models: " <> string.inspect(err))
+  })
 }
 
 /// Encodes a request into JSON for the Gemini generateContent endpoint.
@@ -402,64 +396,54 @@ fn send_request(
 ) -> Result(#(starlet.Response, Ext), StarletError) {
   let body = json.to_string(encode_request(req, ext))
 
-  case uri.parse(base_url) {
-    Ok(base_uri) -> {
-      let scheme = case option.unwrap(base_uri.scheme, "https") {
-        "http" -> http.Http
-        _ -> http.Https
-      }
-      let host =
-        option.unwrap(base_uri.host, "generativelanguage.googleapis.com")
-      let base_path = base_uri.path
+  use base_uri <- result.try(
+    uri.parse(base_url)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      let path =
-        base_path <> "/v1beta/models/" <> req.model <> ":generateContent"
+  let base_uri = internal_http.with_defaults(base_uri, "https", default_host)
+  use http_request <- result.try(
+    request.from_uri(base_uri)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      let http_request =
-        request.new()
-        |> request.set_method(http.Post)
-        |> request.set_scheme(scheme)
-        |> request.set_host(host)
-        |> internal_http.set_optional_port(base_uri.port)
-        |> request.set_path(path)
-        |> request.set_header("content-type", "application/json")
-        |> request.set_header("x-goog-api-key", api_key)
-        |> request.set_body(body)
+  let path =
+    base_uri.path <> "/v1beta/models/" <> req.model <> ":generateContent"
 
-      let config = httpc.configure() |> httpc.timeout(req.timeout_ms)
-      case httpc.dispatch(config, http_request) {
-        Ok(response) ->
-          case response.status {
-            200 ->
-              case decode_response(response.body) {
-                Ok(#(resp, thinking_content)) -> {
-                  let new_ext = Ext(..ext, thinking: thinking_content)
-                  Ok(#(resp, new_ext))
-                }
-                Error(e) -> Error(e)
-              }
-            429 -> {
-              let retry_after =
-                internal_http.parse_retry_after(response.headers)
-              Error(starlet.RateLimited(retry_after))
-            }
-            status -> {
-              case decode_error_response(response.body) {
-                Ok(msg) ->
-                  Error(starlet.Provider(
-                    provider: "gemini",
-                    message: msg,
-                    raw: response.body,
-                  ))
-                Error(_) ->
-                  Error(starlet.Http(status: status, body: response.body))
-              }
-            }
-          }
-        Error(err) -> Error(starlet.Transport(string.inspect(err)))
-      }
+  let http_request =
+    http_request
+    |> request.set_method(http.Post)
+    |> request.set_path(path)
+    |> request.set_header("content-type", "application/json")
+    |> request.set_header("x-goog-api-key", api_key)
+    |> request.set_body(body)
+
+  let config = httpc.configure() |> httpc.timeout(req.timeout_ms)
+  use response <- result.try(
+    httpc.dispatch(config, http_request)
+    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
+  )
+
+  case response.status {
+    200 -> {
+      use #(resp, thinking_content) <- result.map(decode_response(response.body))
+      let new_ext = Ext(..ext, thinking: thinking_content)
+      #(resp, new_ext)
     }
-    Error(_) -> Error(starlet.Transport("Invalid base URL: " <> base_url))
+    429 -> {
+      let retry_after = internal_http.parse_retry_after(response.headers)
+      Error(starlet.RateLimited(retry_after))
+    }
+    status ->
+      case decode_error_response(response.body) {
+        Ok(msg) ->
+          Error(starlet.Provider(
+            provider: "gemini",
+            message: msg,
+            raw: response.body,
+          ))
+        Error(_) -> Error(starlet.Http(status: status, body: response.body))
+      }
   }
 }
 
@@ -498,17 +482,10 @@ pub fn decode_response(
       decode_skipped_part(),
     ])
 
+  let candidate_decoder =
+    decode.at(["content", "parts"], decode.list(part_decoder))
   let decoder = {
-    use candidates <- decode.field(
-      "candidates",
-      decode.list({
-        use parts <- decode.field("content", {
-          use inner_parts <- decode.field("parts", decode.list(part_decoder))
-          decode.success(inner_parts)
-        })
-        decode.success(parts)
-      }),
-    )
+    use candidates <- decode.field("candidates", decode.list(candidate_decoder))
     decode.success(candidates)
   }
 

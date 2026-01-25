@@ -33,6 +33,7 @@
 //// Anthropic requires `max_tokens` in every request. If not explicitly set
 //// via `starlet.max_tokens()`, a default of 4096 is used.
 
+import gleam/bool
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/http
@@ -55,6 +56,8 @@ import starlet/tool
 const default_max_tokens = 4096
 
 const anthropic_version = "2023-06-01"
+
+const default_host = "api.anthropic.com"
 
 /// Anthropic provider extension type for extended thinking.
 @internal
@@ -97,17 +100,15 @@ pub fn with_thinking(
   chat: Chat(t, f, s, Ext),
   budget: Int,
 ) -> Result(Chat(t, f, s, Ext), StarletError) {
-  case budget >= 1024 {
-    False ->
-      Error(starlet.Provider(
-        provider: "anthropic",
-        message: "thinking budget must be at least 1024 tokens",
-        raw: "",
-      ))
-    True -> {
-      Ok(Chat(..chat, ext: Ext(..chat.ext, thinking_budget: Some(budget))))
-    }
-  }
+  use <- bool.guard(
+    when: budget < 1024,
+    return: Error(starlet.Provider(
+      provider: "anthropic",
+      message: "thinking budget must be at least 1024 tokens",
+      raw: "",
+    )),
+  )
+  Ok(Chat(..chat, ext: Ext(..chat.ext, thinking_budget: Some(budget))))
 }
 
 /// Get the thinking content from an Anthropic turn (if present).
@@ -123,62 +124,53 @@ fn send_request(
 ) -> Result(#(Response, Ext), StarletError) {
   let body = json.to_string(encode_request(req, ext))
 
-  case uri.parse(base_url) {
-    Ok(base_uri) -> {
-      let scheme = case option.unwrap(base_uri.scheme, "https") {
-        "http" -> http.Http
-        _ -> http.Https
-      }
-      let host = option.unwrap(base_uri.host, "api.anthropic.com")
-      let base_path = base_uri.path
+  use base_uri <- result.try(
+    uri.parse(base_url)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      let http_request =
-        request.new()
-        |> request.set_method(http.Post)
-        |> request.set_scheme(scheme)
-        |> request.set_host(host)
-        |> internal_http.set_optional_port(base_uri.port)
-        |> request.set_path(base_path <> "/v1/messages")
-        |> request.set_header("content-type", "application/json")
-        |> request.set_header("x-api-key", api_key)
-        |> request.set_header("anthropic-version", anthropic_version)
-        |> set_beta_headers(req.json_schema, ext.thinking_budget)
-        |> request.set_body(body)
+  let base_uri = internal_http.with_defaults(base_uri, "https", default_host)
+  use http_request <- result.try(
+    request.from_uri(base_uri)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      let config = httpc.configure() |> httpc.timeout(req.timeout_ms)
-      case httpc.dispatch(config, http_request) {
-        Ok(response) ->
-          case response.status {
-            200 ->
-              case decode_response(response.body) {
-                Ok(#(resp, thinking_content)) -> {
-                  let new_ext = Ext(..ext, thinking: thinking_content)
-                  Ok(#(resp, new_ext))
-                }
-                Error(e) -> Error(e)
-              }
-            429 -> {
-              let retry_after =
-                internal_http.parse_retry_after(response.headers)
-              Error(starlet.RateLimited(retry_after))
-            }
-            status -> {
-              case decode_error_response(response.body) {
-                Ok(msg) ->
-                  Error(starlet.Provider(
-                    provider: "anthropic",
-                    message: msg,
-                    raw: response.body,
-                  ))
-                Error(_) ->
-                  Error(starlet.Http(status: status, body: response.body))
-              }
-            }
-          }
-        Error(err) -> Error(starlet.Transport(string.inspect(err)))
-      }
+  let http_request =
+    http_request
+    |> request.set_method(http.Post)
+    |> request.set_path(base_uri.path <> "/v1/messages")
+    |> request.set_header("content-type", "application/json")
+    |> request.set_header("x-api-key", api_key)
+    |> request.set_header("anthropic-version", anthropic_version)
+    |> set_beta_headers(req.json_schema, ext.thinking_budget)
+    |> request.set_body(body)
+
+  let config = httpc.configure() |> httpc.timeout(req.timeout_ms)
+  use response <- result.try(
+    httpc.dispatch(config, http_request)
+    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
+  )
+
+  case response.status {
+    200 -> {
+      use #(resp, thinking_content) <- result.map(decode_response(response.body))
+      let new_ext = Ext(..ext, thinking: thinking_content)
+      #(resp, new_ext)
     }
-    Error(_) -> Error(starlet.Transport("Invalid base URL: " <> base_url))
+    429 -> {
+      let retry_after = internal_http.parse_retry_after(response.headers)
+      Error(starlet.RateLimited(retry_after))
+    }
+    status ->
+      case decode_error_response(response.body) {
+        Ok(msg) ->
+          Error(starlet.Provider(
+            provider: "anthropic",
+            message: msg,
+            raw: response.body,
+          ))
+        Error(_) -> Error(starlet.Http(status: status, body: response.body))
+      }
   }
 }
 
@@ -301,73 +293,79 @@ fn encode_messages_acc(messages: List(Message), acc: List(Json)) -> List(Json) {
   case messages {
     [] -> acc
     [msg, ..rest] -> {
-      case msg {
-        UserMessage(content) -> {
-          let encoded =
-            json.object([
-              #("role", json.string("user")),
-              #("content", json.string(content)),
-            ])
-          encode_messages_acc(rest, [encoded, ..acc])
-        }
-        AssistantMessage(content, tool_calls) -> {
-          let encoded = case tool_calls {
-            [] ->
-              json.object([
-                #("role", json.string("assistant")),
-                #("content", json.string(content)),
-              ])
-            _ -> {
-              let text_blocks = case content {
-                "" -> []
-                _ -> [
-                  json.object([
-                    #("type", json.string("text")),
-                    #("text", json.string(content)),
-                  ]),
-                ]
-              }
-              let tool_blocks =
-                list.map(tool_calls, fn(call) {
-                  json.object([
-                    #("type", json.string("tool_use")),
-                    #("id", json.string(call.id)),
-                    #("name", json.string(call.name)),
-                    #("input", tool.dynamic_to_json(call.arguments)),
-                  ])
-                })
-              json.object([
-                #("role", json.string("assistant")),
-                #(
-                  "content",
-                  json.array(list.append(text_blocks, tool_blocks), fn(b) { b }),
-                ),
-              ])
-            }
-          }
-          encode_messages_acc(rest, [encoded, ..acc])
-        }
-        ToolResultMessage(_, _, _) -> {
-          let #(results, remaining) = collect_tool_results(messages)
-          let content_blocks =
-            list.map(results, fn(r) {
-              let #(id, _, c) = r
-              json.object([
-                #("type", json.string("tool_result")),
-                #("tool_use_id", json.string(id)),
-                #("content", json.string(c)),
-              ])
-            })
-          let encoded =
-            json.object([
-              #("role", json.string("user")),
-              #("content", json.array(content_blocks, fn(b) { b })),
-            ])
-          encode_messages_acc(remaining, [encoded, ..acc])
-        }
+      let #(encoded, remaining) = case msg {
+        UserMessage(content) -> #(encode_user_message(content), rest)
+        AssistantMessage(content, tool_calls) -> #(
+          encode_assistant_message(content, tool_calls),
+          rest,
+        )
+        ToolResultMessage(_, _, _) -> encode_tool_results_batch(messages)
       }
+      encode_messages_acc(remaining, [encoded, ..acc])
     }
   }
+}
+
+fn encode_user_message(content: String) -> Json {
+  json.object([
+    #("role", json.string("user")),
+    #("content", json.string(content)),
+  ])
+}
+
+fn encode_assistant_message(
+  content: String,
+  tool_calls: List(tool.Call),
+) -> Json {
+  use <- bool.guard(
+    when: list.is_empty(tool_calls),
+    return: json.object([
+      #("role", json.string("assistant")),
+      #("content", json.string(content)),
+    ]),
+  )
+
+  let text_blocks = case content {
+    "" -> []
+    _ -> [
+      json.object([
+        #("type", json.string("text")),
+        #("text", json.string(content)),
+      ]),
+    ]
+  }
+  let tool_blocks =
+    list.map(tool_calls, fn(call) {
+      json.object([
+        #("type", json.string("tool_use")),
+        #("id", json.string(call.id)),
+        #("name", json.string(call.name)),
+        #("input", tool.dynamic_to_json(call.arguments)),
+      ])
+    })
+  json.object([
+    #("role", json.string("assistant")),
+    #("content", json.array(list.append(text_blocks, tool_blocks), fn(b) { b })),
+  ])
+}
+
+fn encode_tool_results_batch(messages: List(Message)) -> #(Json, List(Message)) {
+  let #(results, remaining) = collect_tool_results(messages)
+  let content_blocks =
+    list.map(results, fn(r) {
+      let #(id, _, c) = r
+      json.object([
+        #("type", json.string("tool_result")),
+        #("tool_use_id", json.string(id)),
+        #("content", json.string(c)),
+      ])
+    })
+  let encoded =
+    json.object([
+      #("role", json.string("user")),
+      #("content", json.array(content_blocks, fn(b) { b })),
+    ])
+  #(encoded, remaining)
 }
 
 fn collect_tool_results(

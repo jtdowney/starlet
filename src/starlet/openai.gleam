@@ -27,6 +27,7 @@
 //// |> starlet.send()
 //// ```
 
+import gleam/bool
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/http
@@ -45,6 +46,8 @@ import starlet.{
 }
 import starlet/internal/http as internal_http
 import starlet/tool
+
+const default_host = "api.openai.com"
 
 /// Result of decoding an OpenAI response, includes the response ID.
 @internal
@@ -114,65 +117,56 @@ fn send_request(
 ) -> Result(#(Response, Ext), StarletError) {
   let body = json.to_string(encode_request(req, ext))
 
-  case uri.parse(base_url) {
-    Ok(base_uri) -> {
-      let scheme = case option.unwrap(base_uri.scheme, "https") {
-        "http" -> http.Http
-        _ -> http.Https
-      }
-      let host = option.unwrap(base_uri.host, "api.openai.com")
-      let base_path = base_uri.path
+  use base_uri <- result.try(
+    uri.parse(base_url)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      let http_request =
-        request.new()
-        |> request.set_method(http.Post)
-        |> request.set_scheme(scheme)
-        |> request.set_host(host)
-        |> internal_http.set_optional_port(base_uri.port)
-        |> request.set_path(base_path <> "/v1/responses")
-        |> request.set_header("content-type", "application/json")
-        |> request.set_header("authorization", "Bearer " <> api_key)
-        |> request.set_body(body)
+  let base_uri = internal_http.with_defaults(base_uri, "https", default_host)
+  use http_request <- result.try(
+    request.from_uri(base_uri)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      let config = httpc.configure() |> httpc.timeout(req.timeout_ms)
-      case httpc.dispatch(config, http_request) {
-        Ok(response) ->
-          case response.status {
-            200 ->
-              case decode_response(response.body) {
-                Ok(decoded) -> {
-                  let new_ext =
-                    Ext(
-                      ..ext,
-                      response_id: Some(decoded.response_id),
-                      reasoning_summary: decoded.reasoning_summary,
-                    )
-                  Ok(#(decoded.response, new_ext))
-                }
-                Error(e) -> Error(e)
-              }
-            429 -> {
-              let retry_after =
-                internal_http.parse_retry_after(response.headers)
-              Error(starlet.RateLimited(retry_after))
-            }
-            status -> {
-              case decode_error_response(response.body) {
-                Ok(msg) ->
-                  Error(starlet.Provider(
-                    provider: "openai",
-                    message: msg,
-                    raw: response.body,
-                  ))
-                Error(_) ->
-                  Error(starlet.Http(status: status, body: response.body))
-              }
-            }
-          }
-        Error(err) -> Error(starlet.Transport(string.inspect(err)))
-      }
+  let http_request =
+    http_request
+    |> request.set_method(http.Post)
+    |> request.set_path(base_uri.path <> "/v1/responses")
+    |> request.set_header("content-type", "application/json")
+    |> request.set_header("authorization", "Bearer " <> api_key)
+    |> request.set_body(body)
+
+  let config = httpc.configure() |> httpc.timeout(req.timeout_ms)
+  use response <- result.try(
+    httpc.dispatch(config, http_request)
+    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
+  )
+
+  case response.status {
+    200 -> {
+      use decoded <- result.map(decode_response(response.body))
+      let new_ext =
+        Ext(
+          ..ext,
+          response_id: Some(decoded.response_id),
+          reasoning_summary: decoded.reasoning_summary,
+        )
+      #(decoded.response, new_ext)
     }
-    Error(_) -> Error(starlet.Transport("Invalid base URL: " <> base_url))
+    429 -> {
+      let retry_after = internal_http.parse_retry_after(response.headers)
+      Error(starlet.RateLimited(retry_after))
+    }
+    status ->
+      case decode_error_response(response.body) {
+        Ok(msg) ->
+          Error(starlet.Provider(
+            provider: "openai",
+            message: msg,
+            raw: response.body,
+          ))
+        Error(_) -> Error(starlet.Http(status: status, body: response.body))
+      }
   }
 }
 
@@ -283,55 +277,67 @@ fn build_input(
   let message_items =
     list.flat_map(messages, fn(msg) {
       case msg {
-        UserMessage(content) -> [
-          json.object([
-            #("role", json.string("user")),
-            #("content", json.string(content)),
-          ]),
-        ]
+        UserMessage(content) -> build_user_item(content)
         AssistantMessage(content, tool_calls) ->
-          case tool_calls {
-            [] -> [
-              json.object([
-                #("role", json.string("assistant")),
-                #("content", json.string(content)),
-              ]),
-            ]
-            _ -> {
-              let text_output = case content {
-                "" -> []
-                _ -> [
-                  json.object([
-                    #("type", json.string("text")),
-                    #("text", json.string(content)),
-                  ]),
-                ]
-              }
-              let tool_outputs =
-                list.map(tool_calls, fn(call) {
-                  let args_str =
-                    json.to_string(tool.dynamic_to_json(call.arguments))
-                  json.object([
-                    #("type", json.string("function_call")),
-                    #("call_id", json.string(call.id)),
-                    #("name", json.string(call.name)),
-                    #("arguments", json.string(args_str)),
-                  ])
-                })
-              list.append(text_output, tool_outputs)
-            }
-          }
-        ToolResultMessage(call_id, _name, content) -> [
-          json.object([
-            #("type", json.string("function_call_output")),
-            #("call_id", json.string(call_id)),
-            #("output", json.string(content)),
-          ]),
-        ]
+          build_assistant_items(content, tool_calls)
+        ToolResultMessage(call_id, _name, content) ->
+          build_tool_result_item(call_id, content)
       }
     })
 
   list.append(system_items, message_items)
+}
+
+fn build_user_item(content: String) -> List(Json) {
+  [
+    json.object([
+      #("role", json.string("user")),
+      #("content", json.string(content)),
+    ]),
+  ]
+}
+
+fn build_assistant_items(
+  content: String,
+  tool_calls: List(tool.Call),
+) -> List(Json) {
+  use <- bool.guard(when: list.is_empty(tool_calls), return: [
+    json.object([
+      #("role", json.string("assistant")),
+      #("content", json.string(content)),
+    ]),
+  ])
+
+  let text_output = case content {
+    "" -> []
+    _ -> [
+      json.object([
+        #("type", json.string("text")),
+        #("text", json.string(content)),
+      ]),
+    ]
+  }
+  let tool_outputs =
+    list.map(tool_calls, fn(call) {
+      let args_str = json.to_string(tool.dynamic_to_json(call.arguments))
+      json.object([
+        #("type", json.string("function_call")),
+        #("call_id", json.string(call.id)),
+        #("name", json.string(call.name)),
+        #("arguments", json.string(args_str)),
+      ])
+    })
+  list.append(text_output, tool_outputs)
+}
+
+fn build_tool_result_item(call_id: String, content: String) -> List(Json) {
+  [
+    json.object([
+      #("type", json.string("function_call_output")),
+      #("call_id", json.string(call_id)),
+      #("output", json.string(content)),
+    ]),
+  ]
 }
 
 fn build_tools(tools: List(tool.Definition)) -> Option(Json) {
@@ -395,26 +401,27 @@ type OutputItem {
   SkippedItem
 }
 
+fn decode_output_text_content() -> decode.Decoder(String) {
+  use type_ <- decode.field("type", decode.string)
+  use <- bool.guard(when: type_ != "output_text", return: decode.success(""))
+
+  use text <- decode.field("text", decode.string)
+  decode.success(text)
+}
+
 fn decode_message_item() -> decode.Decoder(OutputItem) {
   use type_ <- decode.field("type", decode.string)
-  case type_ {
-    "message" -> {
-      let content_decoder = {
-        use type_ <- decode.field("type", decode.string)
-        case type_ {
-          "output_text" -> {
-            use text <- decode.field("text", decode.string)
-            decode.success(text)
-          }
-          _ -> decode.success("")
-        }
-      }
-      use content <- decode.field("content", decode.list(content_decoder))
-      let text = string.join(content, "")
-      decode.success(MessageItem(text))
-    }
-    _ -> decode.failure(MessageItem(""), "message")
-  }
+  use <- bool.guard(
+    when: type_ != "message",
+    return: decode.failure(MessageItem(""), "message"),
+  )
+
+  use content <- decode.field(
+    "content",
+    decode.list(decode_output_text_content()),
+  )
+  let text = string.join(content, "")
+  decode.success(MessageItem(text))
 }
 
 fn decode_function_call_item() -> decode.Decoder(OutputItem) {
@@ -484,17 +491,16 @@ fn extract_tool_calls(items: List(OutputItem)) -> List(tool.Call) {
 }
 
 fn extract_reasoning_summary(items: List(OutputItem)) -> Option(String) {
-  list.filter_map(items, fn(item) {
-    case item {
-      ReasoningSummaryItem(text) -> Ok(text)
-      _ -> Error(Nil)
-    }
-  })
-  |> fn(summaries) {
-    case summaries {
-      [] -> None
-      _ -> Some(string.join(summaries, "\n"))
-    }
+  let summaries =
+    list.filter_map(items, fn(item) {
+      case item {
+        ReasoningSummaryItem(text) -> Ok(text)
+        _ -> Error(Nil)
+      }
+    })
+  case summaries {
+    [] -> None
+    _ -> Some(string.join(summaries, "\n"))
   }
 }
 
@@ -560,38 +566,34 @@ pub fn list_models_with_base_url(
   api_key: String,
   base_url: String,
 ) -> Result(List(Model), starlet.StarletError) {
-  case uri.parse(base_url) {
-    Ok(base_uri) -> {
-      let scheme = case option.unwrap(base_uri.scheme, "https") {
-        "http" -> http.Http
-        _ -> http.Https
-      }
-      let host = option.unwrap(base_uri.host, "api.openai.com")
-      let base_path = base_uri.path
+  use base_uri <- result.try(
+    uri.parse(base_url)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      let http_request =
-        request.new()
-        |> request.set_method(http.Get)
-        |> request.set_scheme(scheme)
-        |> request.set_host(host)
-        |> internal_http.set_optional_port(base_uri.port)
-        |> request.set_path(base_path <> "/v1/models")
-        |> request.set_header("authorization", "Bearer " <> api_key)
+  let base_uri = internal_http.with_defaults(base_uri, "https", default_host)
+  use http_request <- result.try(
+    request.from_uri(base_uri)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      case httpc.send(http_request) {
-        Ok(response) ->
-          case response.status {
-            200 -> decode_models(response.body)
-            429 -> {
-              let retry_after =
-                internal_http.parse_retry_after(response.headers)
-              Error(starlet.RateLimited(retry_after))
-            }
-            status -> Error(starlet.Http(status: status, body: response.body))
-          }
-        Error(err) -> Error(starlet.Transport(string.inspect(err)))
-      }
+  let http_request =
+    http_request
+    |> request.set_method(http.Get)
+    |> request.set_path(base_uri.path <> "/v1/models")
+    |> request.set_header("authorization", "Bearer " <> api_key)
+
+  use response <- result.try(
+    httpc.send(http_request)
+    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
+  )
+
+  case response.status {
+    200 -> decode_models(response.body)
+    429 -> {
+      let retry_after = internal_http.parse_retry_after(response.headers)
+      Error(starlet.RateLimited(retry_after))
     }
-    Error(_) -> Error(starlet.Transport("Invalid base URL: " <> base_url))
+    status -> Error(starlet.Http(status: status, body: response.body))
   }
 }

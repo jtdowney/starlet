@@ -42,6 +42,7 @@
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import jscheam/schema
 import starlet/tool
 
@@ -168,10 +169,7 @@ pub fn mock_client(
   respond: fn(Request) -> Result(Response, StarletError),
 ) -> Client(NoExt) {
   let send = fn(req, ext) {
-    case respond(req) {
-      Ok(response) -> Ok(#(response, ext))
-      Error(e) -> Error(e)
-    }
+    result.map(respond(req), fn(response) { #(response, ext) })
   }
   Client(ProviderConfig(name: "mock", base_url: "", send: send), NoExt)
 }
@@ -412,19 +410,13 @@ pub fn send(
       timeout_ms: timeout_ms,
     )
 
-  case p.send(request, ext) {
-    Ok(#(response, new_ext)) -> {
-      let new_messages =
-        list.append(messages, [
-          AssistantMessage(response.text, response.tool_calls),
-        ])
-      let new_chat = Chat(..chat, messages: new_messages, ext: new_ext)
-      let turn =
-        Turn(text: response.text, tool_calls: response.tool_calls, ext: new_ext)
-      Ok(#(new_chat, turn))
-    }
-    Error(err) -> Error(err)
-  }
+  use #(response, new_ext) <- result.map(p.send(request, ext))
+  let new_messages =
+    list.append(messages, [AssistantMessage(response.text, response.tool_calls)])
+  let new_chat = Chat(..chat, messages: new_messages, ext: new_ext)
+  let turn =
+    Turn(text: response.text, tool_calls: response.tool_calls, ext: new_ext)
+  #(new_chat, turn)
 }
 
 /// Apply pre-computed tool results to the chat.
@@ -465,10 +457,8 @@ fn run_all_tools(
   case calls {
     [] -> Ok(list.reverse(acc))
     [call, ..rest] -> {
-      case run(call) {
-        Ok(result) -> run_all_tools(rest, run, [result, ..acc])
-        Error(e) -> Error(e)
-      }
+      use tool_result <- result.try(run(call))
+      run_all_tools(rest, run, [tool_result, ..acc])
     }
   }
 }
@@ -478,13 +468,9 @@ fn run_all_tools(
 pub fn step(
   chat: Chat(ToolsOn, format, Ready, ext),
 ) -> Result(Step(format, ext), StarletError) {
-  case send(chat) {
-    Ok(#(new_chat, turn)) -> {
-      case has_tool_calls(turn) {
-        True -> Ok(ToolCall(chat: new_chat, turn: turn, calls: turn.tool_calls))
-        False -> Ok(Done(chat: new_chat, turn: turn))
-      }
-    }
-    Error(e) -> Error(e)
+  use #(new_chat, turn) <- result.map(send(chat))
+  case has_tool_calls(turn) {
+    True -> ToolCall(chat: new_chat, turn: turn, calls: turn.tool_calls)
+    False -> Done(chat: new_chat, turn: turn)
   }
 }

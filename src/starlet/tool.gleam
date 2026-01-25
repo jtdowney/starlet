@@ -99,12 +99,7 @@ pub fn error(call: Call, message: String) -> ToolResult {
 /// Create a dispatcher that routes calls to the right handler by name.
 pub fn dispatch(handlers: List(#(String, Handler))) -> Handler {
   fn(call: Call) {
-    let maybe_tool_call =
-      list.find(handlers, fn(h) {
-        let #(name, _) = h
-        name == call.name
-      })
-    case maybe_tool_call {
+    case list.find(handlers, fn(h) { h.0 == call.name }) {
       Ok(#(_, handle)) -> handle(call)
       Error(_) -> Error(NotFound(call.name))
     }
@@ -125,10 +120,7 @@ pub fn dynamic_handler(
   run: fn(Dynamic) -> Result(Json, ToolError),
 ) -> #(String, Handler) {
   #(name, fn(call: Call) {
-    case run(call.arguments) {
-      Ok(output) -> Ok(success(call, output))
-      Error(e) -> Error(e)
-    }
+    result.map(run(call.arguments), fn(output) { success(call, output) })
   })
 }
 
@@ -158,11 +150,7 @@ pub fn handler(
         InvalidArguments("Failed to decode: " <> string.inspect(errors))
       }),
     )
-
-    case run(args) {
-      Ok(output) -> Ok(success(call, output))
-      Error(e) -> Error(e)
-    }
+    result.map(run(args), fn(output) { success(call, output) })
   })
 }
 

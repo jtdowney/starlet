@@ -46,6 +46,8 @@ import starlet.{
 import starlet/internal/http as internal_http
 import starlet/tool
 
+const default_host = "localhost"
+
 /// Thinking mode configuration for Ollama.
 pub type Thinking {
   /// Enable thinking (boolean mode)
@@ -109,49 +111,41 @@ fn send_request(
 ) -> Result(#(Response, Ext), StarletError) {
   let body = json.to_string(encode_request(req, ext))
 
-  case uri.parse(base_url) {
-    Ok(base_uri) -> {
-      let scheme = option.unwrap(base_uri.scheme, "http")
-      let host = option.unwrap(base_uri.host, "localhost")
-      let port = base_uri.port
-      let base_path = base_uri.path
+  use base_uri <- result.try(
+    uri.parse(base_url)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      let http_request =
-        request.new()
-        |> request.set_method(http.Post)
-        |> request.set_scheme(case scheme {
-          "https" -> http.Https
-          _ -> http.Http
-        })
-        |> request.set_host(host)
-        |> internal_http.set_optional_port(port)
-        |> request.set_path(base_path <> "/api/chat")
-        |> request.set_header("content-type", "application/json")
-        |> request.set_body(body)
+  let base_uri = internal_http.with_defaults(base_uri, "http", default_host)
+  use http_request <- result.try(
+    request.from_uri(base_uri)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      let config = httpc.configure() |> httpc.timeout(req.timeout_ms)
-      case httpc.dispatch(config, http_request) {
-        Ok(response) ->
-          case response.status {
-            200 ->
-              case decode_response(response.body) {
-                Ok(#(resp, thinking_content)) -> {
-                  let new_ext = Ext(..ext, thinking_content: thinking_content)
-                  Ok(#(resp, new_ext))
-                }
-                Error(e) -> Error(e)
-              }
-            429 -> {
-              let retry_after =
-                internal_http.parse_retry_after(response.headers)
-              Error(starlet.RateLimited(retry_after))
-            }
-            status -> Error(starlet.Http(status: status, body: response.body))
-          }
-        Error(err) -> Error(starlet.Transport(string.inspect(err)))
-      }
+  let http_request =
+    http_request
+    |> request.set_method(http.Post)
+    |> request.set_path(base_uri.path <> "/api/chat")
+    |> request.set_header("content-type", "application/json")
+    |> request.set_body(body)
+
+  let config = httpc.configure() |> httpc.timeout(req.timeout_ms)
+  use response <- result.try(
+    httpc.dispatch(config, http_request)
+    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
+  )
+
+  case response.status {
+    200 -> {
+      use #(resp, thinking_content) <- result.map(decode_response(response.body))
+      let new_ext = Ext(..ext, thinking_content: thinking_content)
+      #(resp, new_ext)
     }
-    Error(_) -> Error(starlet.Transport("Invalid base URL: " <> base_url))
+    429 -> {
+      let retry_after = internal_http.parse_retry_after(response.headers)
+      Error(starlet.RateLimited(retry_after))
+    }
+    status -> Error(starlet.Http(status: status, body: response.body))
   }
 }
 
@@ -405,33 +399,29 @@ pub fn decode_models(body: String) -> Result(List(Model), starlet.StarletError) 
 pub fn list_models(
   base_url: String,
 ) -> Result(List(Model), starlet.StarletError) {
-  case uri.parse(base_url) {
-    Ok(base_uri) -> {
-      let scheme = option.unwrap(base_uri.scheme, "http")
-      let host = option.unwrap(base_uri.host, "localhost")
-      let port = base_uri.port
-      let base_path = base_uri.path
+  use base_uri <- result.try(
+    uri.parse(base_url)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      let http_request =
-        request.new()
-        |> request.set_method(http.Get)
-        |> request.set_scheme(case scheme {
-          "https" -> http.Https
-          _ -> http.Http
-        })
-        |> request.set_host(host)
-        |> internal_http.set_optional_port(port)
-        |> request.set_path(base_path <> "/api/tags")
+  let base_uri = internal_http.with_defaults(base_uri, "http", default_host)
+  use http_request <- result.try(
+    request.from_uri(base_uri)
+    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+  )
 
-      case httpc.send(http_request) {
-        Ok(response) ->
-          case response.status {
-            200 -> decode_models(response.body)
-            status -> Error(starlet.Http(status: status, body: response.body))
-          }
-        Error(err) -> Error(starlet.Transport(string.inspect(err)))
-      }
-    }
-    Error(_) -> Error(starlet.Transport("Invalid base URL: " <> base_url))
+  let http_request =
+    http_request
+    |> request.set_method(http.Get)
+    |> request.set_path(base_uri.path <> "/api/tags")
+
+  use response <- result.try(
+    httpc.send(http_request)
+    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
+  )
+
+  case response.status {
+    200 -> decode_models(response.body)
+    status -> Error(starlet.Http(status: status, body: response.body))
   }
 }
