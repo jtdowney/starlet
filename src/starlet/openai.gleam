@@ -6,14 +6,16 @@
 //// ## Usage
 ////
 //// ```gleam
+//// import gleam/httpc
 //// import starlet
 //// import starlet/openai
 ////
-//// let client = openai.new(api_key)
+//// let creds = openai.credentials(api_key)
+//// let chat = openai.chat(creds, "gpt-4o")
+////   |> starlet.user("Hello!")
 ////
-//// starlet.chat(client, "gpt-5-nano")
-//// |> starlet.user("Hello!")
-//// |> starlet.send()
+//// let assert Ok(http_resp) = httpc.send(openai.request(chat, creds))
+//// let assert Ok(turn) = openai.response(http_resp)
 //// ```
 ////
 //// ## Reasoning Models
@@ -21,18 +23,17 @@
 //// For reasoning models (o1, o3, gpt-5), you can configure reasoning effort:
 ////
 //// ```gleam
-//// starlet.chat(client, "gpt-5-nano")
+//// openai.chat(creds, "gpt-5-nano")
 //// |> openai.with_reasoning(openai.ReasoningHigh)
 //// |> starlet.user("Solve this step by step...")
-//// |> starlet.send()
 //// ```
 
 import gleam/bool
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/http
-import gleam/http/request
-import gleam/httpc
+import gleam/http/request.{type Request}
+import gleam/http/response.{type Response}
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -40,8 +41,7 @@ import gleam/result
 import gleam/string
 import gleam/uri
 import starlet.{
-  type Chat, type Client, type Message, type Request, type Response,
-  type StarletError, type Turn, AssistantMessage, Chat, ProviderConfig, Response,
+  type Chat, type Message, type StarletError, type Turn, AssistantMessage, Chat,
   ToolResultMessage, UserMessage,
 }
 import starlet/internal/http as internal_http
@@ -49,15 +49,7 @@ import starlet/tool
 
 const default_host = "api.openai.com"
 
-/// Result of decoding an OpenAI response, includes the response ID.
-@internal
-pub type DecodedResponse {
-  DecodedResponse(
-    response: Response,
-    response_id: String,
-    reasoning_summary: Option(String),
-  )
-}
+const default_base_url = "https://api.openai.com"
 
 /// Reasoning effort level for OpenAI reasoning models.
 pub type ReasoningEffort {
@@ -74,7 +66,6 @@ pub type ReasoningEffort {
 }
 
 /// OpenAI provider extension type for server-side conversation state and reasoning.
-@internal
 pub type Ext {
   Ext(
     /// The ID of the last response, used for continuation.
@@ -86,88 +77,150 @@ pub type Ext {
   )
 }
 
+/// Connection credentials for OpenAI.
+pub type Credentials {
+  Credentials(api_key: String, base_url: String)
+}
+
 /// Information about an available model.
 pub type Model {
   Model(id: String, owned_by: String)
 }
 
-/// Creates a new OpenAI client with the given API key.
+/// Creates credentials for connecting to OpenAI.
 /// Uses the default base URL: https://api.openai.com
-pub fn new(api_key: String) -> Client(Ext) {
-  new_with_base_url(api_key, "https://api.openai.com")
+pub fn credentials(api_key: String) -> Credentials {
+  Credentials(api_key:, base_url: default_base_url)
 }
 
-/// Creates a new OpenAI client with a custom base URL.
+/// Creates credentials with a custom base URL.
 /// Useful for proxies or Azure OpenAI endpoints.
-pub fn new_with_base_url(api_key: String, base_url: String) -> Client(Ext) {
-  let config =
-    ProviderConfig(name: "openai", base_url: base_url, send: fn(req, ext) {
-      send_request(api_key, base_url, req, ext)
-    })
-  let default_ext =
-    Ext(response_id: None, reasoning_effort: None, reasoning_summary: None)
-  starlet.from_provider(config, default_ext)
-}
-
-fn send_request(
+pub fn credentials_with_base_url(
   api_key: String,
   base_url: String,
-  req: Request,
-  ext: Ext,
-) -> Result(#(Response, Ext), StarletError) {
-  let body = json.to_string(encode_request(req, ext))
+) -> Credentials {
+  Credentials(api_key:, base_url:)
+}
+
+/// Creates a new chat with the given credentials and model name.
+pub fn chat(
+  creds: Credentials,
+  model: String,
+) -> Chat(starlet.ToolsOff, starlet.FreeText, starlet.Empty, Ext) {
+  let _ = creds
+  let default_ext =
+    Ext(response_id: None, reasoning_effort: None, reasoning_summary: None)
+  starlet.new_chat(model, default_ext)
+}
+
+/// Set the reasoning effort for reasoning models (o1, o3, gpt-5).
+/// When not set, the provider's default applies (medium for reasoning models).
+pub fn with_reasoning(
+  chat: Chat(t, f, s, Ext),
+  effort: ReasoningEffort,
+) -> Chat(t, f, s, Ext) {
+  Chat(..chat, ext: Ext(..chat.ext, reasoning_effort: Some(effort)))
+}
+
+/// Continue a conversation from a previous response ID.
+/// The server will use its stored conversation state.
+pub fn continue_from(chat: Chat(t, f, s, Ext), id: String) -> Chat(t, f, s, Ext) {
+  Chat(..chat, ext: Ext(..chat.ext, response_id: Some(id)))
+}
+
+/// Reset the response ID, disabling automatic conversation continuation.
+/// Use this to start a fresh conversation without the previous context.
+pub fn reset_response_id(chat: Chat(t, f, s, Ext)) -> Chat(t, f, s, Ext) {
+  Chat(..chat, ext: Ext(..chat.ext, response_id: None))
+}
+
+/// Get the response ID from an OpenAI turn.
+pub fn response_id(turn: Turn(t, f, Ext)) -> Option(String) {
+  turn.ext.response_id
+}
+
+/// Get the reasoning summary from an OpenAI turn (if present).
+/// Only available for reasoning models (o1, o3, gpt-5).
+pub fn reasoning_summary(turn: Turn(t, f, Ext)) -> Option(String) {
+  turn.ext.reasoning_summary
+}
+
+/// Builds an HTTP request for sending a chat to OpenAI.
+///
+/// The returned request can be sent with any HTTP client.
+pub fn request(
+  chat: Chat(tools, format, starlet.Ready, Ext),
+  creds: Credentials,
+) -> Result(Request(String), StarletError) {
+  let body = json.to_string(encode_request(chat))
 
   use base_uri <- result.try(
-    uri.parse(base_url)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+    uri.parse(creds.base_url)
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
   )
 
   let base_uri = internal_http.with_defaults(base_uri, "https", default_host)
   use http_request <- result.try(
     request.from_uri(base_uri)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
   )
 
-  let http_request =
+  Ok(
     http_request
     |> request.set_method(http.Post)
     |> request.set_path(base_uri.path <> "/v1/responses")
     |> request.set_header("content-type", "application/json")
-    |> request.set_header("authorization", "Bearer " <> api_key)
-    |> request.set_body(body)
-
-  let config = httpc.configure() |> httpc.timeout(req.timeout_ms)
-  use response <- result.try(
-    httpc.dispatch(config, http_request)
-    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
+    |> request.set_header("authorization", "Bearer " <> creds.api_key)
+    |> request.set_body(body),
   )
+}
 
-  case response.status {
+/// Decodes an HTTP response from OpenAI into a Turn.
+pub fn response(
+  resp: Response(String),
+) -> Result(Turn(tools, format, Ext), StarletError) {
+  case resp.status {
     200 -> {
-      use decoded <- result.map(decode_response(response.body))
-      let new_ext =
+      use decoded <- result.map(decode_response(resp.body))
+      let ext =
         Ext(
-          ..ext,
           response_id: Some(decoded.response_id),
+          reasoning_effort: None,
           reasoning_summary: decoded.reasoning_summary,
         )
-      #(decoded.response, new_ext)
+      starlet.Turn(text: decoded.text, tool_calls: decoded.tool_calls, ext:)
     }
     429 -> {
-      let retry_after = internal_http.parse_retry_after(response.headers)
+      let retry_after = internal_http.parse_retry_after(resp.headers)
       Error(starlet.RateLimited(retry_after))
     }
     status ->
-      case decode_error_response(response.body) {
+      case decode_error_response(resp.body) {
         Ok(msg) ->
           Error(starlet.Provider(
             provider: "openai",
             message: msg,
-            raw: response.body,
+            raw: resp.body,
           ))
-        Error(_) -> Error(starlet.Http(status: status, body: response.body))
+        Error(_) -> Error(starlet.Http(status:, body: resp.body))
       }
   }
+}
+
+/// Result of decoding an OpenAI response.
+pub type DecodedResponse {
+  DecodedResponse(
+    text: String,
+    tool_calls: List(tool.Call),
+    response_id: String,
+    reasoning_summary: Option(String),
+  )
 }
 
 fn decode_error_response(body: String) -> Result(String, Nil) {
@@ -182,18 +235,18 @@ fn decode_error_response(body: String) -> Result(String, Nil) {
   |> result.replace_error(Nil)
 }
 
-/// Encodes a request into JSON for the OpenAI Responses API.
+/// Encodes a chat into JSON for the OpenAI Responses API.
 @internal
-pub fn encode_request(req: Request, ext: Ext) -> Json {
-  let input = build_input(req.system_prompt, req.messages)
-  let tools = build_tools(req.tools)
+pub fn encode_request(chat: Chat(tools, format, starlet.Ready, Ext)) -> Json {
+  let input = build_input(chat.system_prompt, chat.messages)
+  let tools = build_tools(chat.tools)
 
   let base = [
-    #("model", json.string(req.model)),
+    #("model", json.string(chat.model)),
     #("input", json.array(input, fn(m) { m })),
   ]
 
-  let base = case ext.response_id {
+  let base = case chat.ext.response_id {
     Some(id) -> list.append(base, [#("previous_response_id", json.string(id))])
     None -> base
   }
@@ -203,17 +256,17 @@ pub fn encode_request(req: Request, ext: Ext) -> Json {
     None -> base
   }
 
-  let base = case req.temperature {
+  let base = case chat.temperature {
     Some(t) -> list.append(base, [#("temperature", json.float(t))])
     None -> base
   }
 
-  let base = case req.max_tokens {
+  let base = case chat.max_tokens {
     Some(n) -> list.append(base, [#("max_output_tokens", json.int(n))])
     None -> base
   }
 
-  let base = case req.json_schema {
+  let base = case chat.json_schema {
     Some(schema) ->
       list.append(base, [
         #(
@@ -233,7 +286,7 @@ pub fn encode_request(req: Request, ext: Ext) -> Json {
     None -> base
   }
 
-  let base = case ext.reasoning_effort {
+  let base = case chat.ext.reasoning_effort {
     Some(effort) ->
       list.append(base, [
         #(
@@ -382,7 +435,8 @@ pub fn decode_response(body: String) -> Result(DecodedResponse, StarletError) {
       let tool_calls = extract_tool_calls(output_items)
       let reasoning = extract_reasoning_summary(output_items)
       Ok(DecodedResponse(
-        response: Response(text: text, tool_calls: tool_calls),
+        text:,
+        tool_calls:,
         response_id: id,
         reasoning_summary: reasoning,
       ))
@@ -504,36 +558,47 @@ fn extract_reasoning_summary(items: List(OutputItem)) -> Option(String) {
   }
 }
 
-/// Get the response ID from an OpenAI turn.
-pub fn response_id(turn: Turn(t, f, Ext)) -> Option(String) {
-  turn.ext.response_id
+/// Builds an HTTP request to list available models.
+pub fn list_models_request(
+  creds: Credentials,
+) -> Result(Request(String), StarletError) {
+  use base_uri <- result.try(
+    uri.parse(creds.base_url)
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
+  )
+
+  let base_uri = internal_http.with_defaults(base_uri, "https", default_host)
+  use http_request <- result.try(
+    request.from_uri(base_uri)
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
+  )
+
+  Ok(
+    http_request
+    |> request.set_method(http.Get)
+    |> request.set_path(base_uri.path <> "/v1/models")
+    |> request.set_header("authorization", "Bearer " <> creds.api_key),
+  )
 }
 
-/// Get the reasoning summary from an OpenAI turn (if present).
-/// Only available for reasoning models (o1, o3, gpt-5).
-pub fn reasoning_summary(turn: Turn(t, f, Ext)) -> Option(String) {
-  turn.ext.reasoning_summary
-}
-
-/// Set the reasoning effort for reasoning models (o1, o3, gpt-5).
-/// When not set, the provider's default applies (medium for reasoning models).
-pub fn with_reasoning(
-  chat: Chat(t, f, s, Ext),
-  effort: ReasoningEffort,
-) -> Chat(t, f, s, Ext) {
-  Chat(..chat, ext: Ext(..chat.ext, reasoning_effort: Some(effort)))
-}
-
-/// Continue a conversation from a previous response ID.
-/// The server will use its stored conversation state.
-pub fn continue_from(chat: Chat(t, f, s, Ext), id: String) -> Chat(t, f, s, Ext) {
-  Chat(..chat, ext: Ext(..chat.ext, response_id: Some(id)))
-}
-
-/// Reset the response ID, disabling automatic conversation continuation.
-/// Use this to start a fresh conversation without the previous context.
-pub fn reset_response_id(chat: Chat(t, f, s, Ext)) -> Chat(t, f, s, Ext) {
-  Chat(..chat, ext: Ext(..chat.ext, response_id: None))
+/// Decodes an HTTP response containing the list of models.
+pub fn list_models_response(
+  resp: Response(String),
+) -> Result(List(Model), StarletError) {
+  case resp.status {
+    200 -> decode_models(resp.body)
+    429 -> {
+      let retry_after = internal_http.parse_retry_after(resp.headers)
+      Error(starlet.RateLimited(retry_after))
+    }
+    status -> Error(starlet.Http(status:, body: resp.body))
+  }
 }
 
 /// Decodes a JSON response from the OpenAI `/v1/models` endpoint.
@@ -554,46 +619,4 @@ pub fn decode_models(body: String) -> Result(List(Model), starlet.StarletError) 
   |> result.map_error(fn(err) {
     starlet.Decode("Failed to decode OpenAI models: " <> string.inspect(err))
   })
-}
-
-/// Lists available models from the OpenAI API.
-pub fn list_models(api_key: String) -> Result(List(Model), starlet.StarletError) {
-  list_models_with_base_url(api_key, "https://api.openai.com")
-}
-
-/// Lists available models from the OpenAI API with a custom base URL.
-pub fn list_models_with_base_url(
-  api_key: String,
-  base_url: String,
-) -> Result(List(Model), starlet.StarletError) {
-  use base_uri <- result.try(
-    uri.parse(base_url)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
-  )
-
-  let base_uri = internal_http.with_defaults(base_uri, "https", default_host)
-  use http_request <- result.try(
-    request.from_uri(base_uri)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
-  )
-
-  let http_request =
-    http_request
-    |> request.set_method(http.Get)
-    |> request.set_path(base_uri.path <> "/v1/models")
-    |> request.set_header("authorization", "Bearer " <> api_key)
-
-  use response <- result.try(
-    httpc.send(http_request)
-    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
-  )
-
-  case response.status {
-    200 -> decode_models(response.body)
-    429 -> {
-      let retry_after = internal_http.parse_retry_after(response.headers)
-      Error(starlet.RateLimited(retry_after))
-    }
-    status -> Error(starlet.Http(status: status, body: response.body))
-  }
 }

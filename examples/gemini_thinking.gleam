@@ -1,5 +1,6 @@
 import envoy
 import examples/utils
+import gleam/httpc
 import gleam/io
 import gleam/option.{Some}
 import gleam/result
@@ -16,21 +17,21 @@ pub fn main() {
 }
 
 fn run_example(api_key: String) {
-  let client = gemini.new(api_key)
+  let creds = gemini.credentials(api_key)
 
   let result = {
     let msg =
       "What is the sum of all prime numbers between 1 and 20? Think through this step by step."
 
     let assert Ok(chat) =
-      starlet.chat(client, "gemini-2.5-flash")
+      gemini.chat(creds, "gemini-2.5-flash")
       |> gemini.with_thinking(gemini.ThinkingDynamic)
     let chat = chat |> starlet.user(msg)
 
     io.println("User: " <> msg)
     io.println("")
 
-    use #(_chat, turn) <- result.try(starlet.send(chat))
+    use turn <- result.try(send_chat(chat, creds))
 
     case gemini.thinking(turn) {
       Some(thinking) -> {
@@ -51,4 +52,13 @@ fn run_example(api_key: String) {
     Ok(_) -> Nil
     Error(err) -> io.println("Error: " <> utils.error_to_string(err))
   }
+}
+
+fn send_chat(
+  chat: starlet.Chat(tools, format, starlet.Ready, gemini.Ext),
+  creds: gemini.Credentials,
+) -> Result(starlet.Turn(tools, format, gemini.Ext), starlet.StarletError) {
+  let assert Ok(req) = gemini.request(chat, creds)
+  let assert Ok(resp) = httpc.send(req)
+  gemini.response(resp)
 }

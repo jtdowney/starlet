@@ -5,14 +5,16 @@
 //// ## Usage
 ////
 //// ```gleam
+//// import gleam/httpc
 //// import starlet
 //// import starlet/gemini
 ////
-//// let client = gemini.new(api_key)
+//// let creds = gemini.credentials(api_key)
+//// let chat = gemini.chat(creds, "gemini-2.5-flash")
+////   |> starlet.user("Hello!")
 ////
-//// starlet.chat(client, "gemini-2.5-flash")
-//// |> starlet.user("Hello!")
-//// |> starlet.send()
+//// let assert Ok(http_resp) = httpc.send(gemini.request(chat, creds))
+//// let assert Ok(turn) = gemini.response(http_resp)
 //// ```
 ////
 //// ## Thinking Mode
@@ -20,16 +22,15 @@
 //// For Gemini 2.5+ models, configure thinking:
 ////
 //// ```gleam
-//// starlet.chat(client, "gemini-2.5-flash")
+//// gemini.chat(creds, "gemini-2.5-flash")
 //// |> gemini.with_thinking(gemini.ThinkingDynamic)
 //// |> starlet.user("Solve this step by step...")
-//// |> starlet.send()
 //// ```
 
 import gleam/dynamic/decode
 import gleam/http
-import gleam/http/request
-import gleam/httpc
+import gleam/http/request.{type Request}
+import gleam/http/response.{type Response}
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
@@ -38,14 +39,15 @@ import gleam/result
 import gleam/string
 import gleam/uri
 import starlet.{
-  type Chat, type Client, type Message, type Request, type Response,
-  type StarletError, type Turn, AssistantMessage, Chat, ProviderConfig,
+  type Chat, type Message, type StarletError, type Turn, AssistantMessage, Chat,
   ToolResultMessage, UserMessage,
 }
 import starlet/internal/http as internal_http
 import starlet/tool
 
 const default_host = "generativelanguage.googleapis.com"
+
+const default_base_url = "https://generativelanguage.googleapis.com"
 
 /// Thinking budget for Gemini 2.5+ models.
 pub type ThinkingBudget {
@@ -58,7 +60,6 @@ pub type ThinkingBudget {
 }
 
 /// Gemini provider extension type.
-@internal
 pub type Ext {
   Ext(
     /// Thinking budget configuration.
@@ -68,25 +69,38 @@ pub type Ext {
   )
 }
 
+/// Connection credentials for Gemini.
+pub type Credentials {
+  Credentials(api_key: String, base_url: String)
+}
+
 /// Information about an available model.
 pub type Model {
   Model(id: String, display_name: String)
 }
 
-/// Creates a new Gemini client with the given API key.
+/// Creates credentials for connecting to Gemini.
 /// Uses the default base URL: https://generativelanguage.googleapis.com
-pub fn new(api_key: String) -> Client(Ext) {
-  new_with_base_url(api_key, "https://generativelanguage.googleapis.com")
+pub fn credentials(api_key: String) -> Credentials {
+  Credentials(api_key:, base_url: default_base_url)
 }
 
-/// Creates a new Gemini client with a custom base URL.
-pub fn new_with_base_url(api_key: String, base_url: String) -> Client(Ext) {
-  let config =
-    ProviderConfig(name: "gemini", base_url: base_url, send: fn(req, ext) {
-      send_request(api_key, base_url, req, ext)
-    })
+/// Creates credentials with a custom base URL.
+pub fn credentials_with_base_url(
+  api_key: String,
+  base_url: String,
+) -> Credentials {
+  Credentials(api_key:, base_url:)
+}
+
+/// Creates a new chat with the given credentials and model name.
+pub fn chat(
+  creds: Credentials,
+  model: String,
+) -> Chat(starlet.ToolsOff, starlet.FreeText, starlet.Empty, Ext) {
+  let _ = creds
   let default_ext = Ext(thinking_budget: None, thinking: None)
-  starlet.from_provider(config, default_ext)
+  starlet.new_chat(model, default_ext)
 }
 
 /// Enable thinking mode for Gemini 2.5+ models.
@@ -117,82 +131,98 @@ pub fn thinking(turn: Turn(t, f, Ext)) -> Option(String) {
   turn.ext.thinking
 }
 
-/// Lists available Gemini models.
-pub fn list_models(api_key: String) -> Result(List(Model), StarletError) {
-  list_models_with_base_url(
-    api_key,
-    "https://generativelanguage.googleapis.com",
-  )
-}
+/// Builds an HTTP request for sending a chat to Gemini.
+///
+/// The returned request can be sent with any HTTP client.
+pub fn request(
+  chat: Chat(tools, format, starlet.Ready, Ext),
+  creds: Credentials,
+) -> Result(Request(String), StarletError) {
+  let body = json.to_string(encode_request(chat))
 
-/// Lists available Gemini models with a custom base URL.
-pub fn list_models_with_base_url(
-  api_key: String,
-  base_url: String,
-) -> Result(List(Model), StarletError) {
   use base_uri <- result.try(
-    uri.parse(base_url)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+    uri.parse(creds.base_url)
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
   )
 
   let base_uri = internal_http.with_defaults(base_uri, "https", default_host)
   use http_request <- result.try(
     request.from_uri(base_uri)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
   )
 
-  let http_request =
+  let path =
+    base_uri.path <> "/v1beta/models/" <> chat.model <> ":generateContent"
+
+  Ok(
     http_request
-    |> request.set_method(http.Get)
-    |> request.set_path(base_uri.path <> "/v1beta/models")
-    |> request.set_header("x-goog-api-key", api_key)
-
-  use response <- result.try(
-    httpc.send(http_request)
-    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
+    |> request.set_method(http.Post)
+    |> request.set_path(path)
+    |> request.set_header("content-type", "application/json")
+    |> request.set_header("x-goog-api-key", creds.api_key)
+    |> request.set_body(body),
   )
+}
 
-  case response.status {
-    200 -> decode_models(response.body)
+/// Decodes an HTTP response from Gemini into a Turn.
+pub fn response(
+  resp: Response(String),
+) -> Result(Turn(tools, format, Ext), StarletError) {
+  case resp.status {
+    200 -> {
+      use #(text, thinking_content, tool_calls) <- result.map(decode_response(
+        resp.body,
+      ))
+      let ext = Ext(thinking_budget: None, thinking: thinking_content)
+      starlet.Turn(text:, tool_calls:, ext:)
+    }
     429 -> {
-      let retry_after = internal_http.parse_retry_after(response.headers)
+      let retry_after = internal_http.parse_retry_after(resp.headers)
       Error(starlet.RateLimited(retry_after))
     }
-    status -> Error(starlet.Http(status: status, body: response.body))
+    status ->
+      case decode_error_response(resp.body) {
+        Ok(msg) ->
+          Error(starlet.Provider(
+            provider: "gemini",
+            message: msg,
+            raw: resp.body,
+          ))
+        Error(_) -> Error(starlet.Http(status:, body: resp.body))
+      }
   }
 }
 
-fn decode_models(body: String) -> Result(List(Model), StarletError) {
-  let model_decoder = {
-    use name <- decode.field("name", decode.string)
-    use display_name <- decode.field("displayName", decode.string)
-    let id = case string.split(name, "/") {
-      [_, model_id] -> model_id
-      _ -> name
-    }
-    decode.success(Model(id: id, display_name: display_name))
-  }
-
-  let decoder = {
-    use models <- decode.field("models", decode.list(model_decoder))
-    decode.success(models)
-  }
-
-  json.parse(body, decoder)
-  |> result.map_error(fn(err) {
-    starlet.Decode("Failed to decode Gemini models: " <> string.inspect(err))
-  })
-}
-
-/// Encodes a request into JSON for the Gemini generateContent endpoint.
+/// Decodes an error response body from the Gemini API.
+/// Returns the error message if successfully parsed.
 @internal
-pub fn encode_request(req: Request, ext: Ext) -> Json {
-  let contents = build_contents(req.messages)
+pub fn decode_error_response(body: String) -> Result(String, Nil) {
+  let decoder = {
+    use error <- decode.field("error", {
+      use message <- decode.field("message", decode.string)
+      decode.success(message)
+    })
+    decode.success(error)
+  }
+  json.parse(body, decoder)
+  |> result.replace_error(Nil)
+}
+
+/// Encodes a chat into JSON for the Gemini generateContent endpoint.
+@internal
+pub fn encode_request(chat: Chat(tools, format, starlet.Ready, Ext)) -> Json {
+  let contents = build_contents(chat.messages)
 
   let base = [#("contents", json.array(contents, fn(c) { c }))]
 
   // Add systemInstruction if present
-  let base = case req.system_prompt {
+  let base = case chat.system_prompt {
     Some(prompt) ->
       list.append(base, [
         #(
@@ -211,7 +241,7 @@ pub fn encode_request(req: Request, ext: Ext) -> Json {
   }
 
   // Add tools if present
-  let base = case req.tools {
+  let base = case chat.tools {
     [] -> base
     tools ->
       list.append(base, [
@@ -223,7 +253,7 @@ pub fn encode_request(req: Request, ext: Ext) -> Json {
   }
 
   // Add generationConfig if any options are set
-  let gen_config = build_generation_config(req, ext)
+  let gen_config = build_generation_config(chat)
   let base = case gen_config {
     Some(config) -> list.append(base, [#("generationConfig", config)])
     None -> base
@@ -332,20 +362,22 @@ fn build_function_declarations(tools: List(tool.Definition)) -> Json {
   ])
 }
 
-fn build_generation_config(req: Request, ext: Ext) -> Option(Json) {
+fn build_generation_config(
+  chat: Chat(tools, format, starlet.Ready, Ext),
+) -> Option(Json) {
   let config = []
 
-  let config = case req.temperature {
+  let config = case chat.temperature {
     Some(t) -> [#("temperature", json.float(t)), ..config]
     None -> config
   }
 
-  let config = case req.max_tokens {
+  let config = case chat.max_tokens {
     Some(n) -> [#("maxOutputTokens", json.int(n)), ..config]
     None -> config
   }
 
-  let config = case req.json_schema {
+  let config = case chat.json_schema {
     Some(schema) -> [
       #("responseMimeType", json.string("application/json")),
       #("responseSchema", schema),
@@ -354,7 +386,7 @@ fn build_generation_config(req: Request, ext: Ext) -> Option(Json) {
     None -> config
   }
 
-  let config = case ext.thinking_budget {
+  let config = case chat.ext.thinking_budget {
     Some(ThinkingOff) -> [
       #("thinkingConfig", json.object([#("thinkingBudget", json.int(0))])),
       ..config
@@ -388,80 +420,6 @@ fn build_generation_config(req: Request, ext: Ext) -> Option(Json) {
   }
 }
 
-fn send_request(
-  api_key: String,
-  base_url: String,
-  req: Request,
-  ext: Ext,
-) -> Result(#(starlet.Response, Ext), StarletError) {
-  let body = json.to_string(encode_request(req, ext))
-
-  use base_uri <- result.try(
-    uri.parse(base_url)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
-  )
-
-  let base_uri = internal_http.with_defaults(base_uri, "https", default_host)
-  use http_request <- result.try(
-    request.from_uri(base_uri)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
-  )
-
-  let path =
-    base_uri.path <> "/v1beta/models/" <> req.model <> ":generateContent"
-
-  let http_request =
-    http_request
-    |> request.set_method(http.Post)
-    |> request.set_path(path)
-    |> request.set_header("content-type", "application/json")
-    |> request.set_header("x-goog-api-key", api_key)
-    |> request.set_body(body)
-
-  let config = httpc.configure() |> httpc.timeout(req.timeout_ms)
-  use response <- result.try(
-    httpc.dispatch(config, http_request)
-    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
-  )
-
-  case response.status {
-    200 -> {
-      use #(resp, thinking_content) <- result.map(decode_response(response.body))
-      let new_ext = Ext(..ext, thinking: thinking_content)
-      #(resp, new_ext)
-    }
-    429 -> {
-      let retry_after = internal_http.parse_retry_after(response.headers)
-      Error(starlet.RateLimited(retry_after))
-    }
-    status ->
-      case decode_error_response(response.body) {
-        Ok(msg) ->
-          Error(starlet.Provider(
-            provider: "gemini",
-            message: msg,
-            raw: response.body,
-          ))
-        Error(_) -> Error(starlet.Http(status: status, body: response.body))
-      }
-  }
-}
-
-/// Decodes an error response body from the Gemini API.
-/// Returns the error message if successfully parsed.
-@internal
-pub fn decode_error_response(body: String) -> Result(String, Nil) {
-  let decoder = {
-    use error <- decode.field("error", {
-      use message <- decode.field("message", decode.string)
-      decode.success(message)
-    })
-    decode.success(error)
-  }
-  json.parse(body, decoder)
-  |> result.replace_error(Nil)
-}
-
 /// Internal type for decoding response parts.
 type Part {
   TextPart(String)
@@ -474,7 +432,7 @@ type Part {
 @internal
 pub fn decode_response(
   body: String,
-) -> Result(#(Response, Option(String)), StarletError) {
+) -> Result(#(String, Option(String), List(tool.Call)), StarletError) {
   let part_decoder =
     decode.one_of(decode_thought_part(), or: [
       decode_text_part(),
@@ -494,7 +452,7 @@ pub fn decode_response(
       let text = extract_text(parts)
       let tool_calls = extract_tool_calls(parts)
       let thinking = extract_thinking(parts)
-      Ok(#(starlet.Response(text: text, tool_calls: tool_calls), thinking))
+      Ok(#(text, thinking, tool_calls))
     }
     Ok([]) -> Error(starlet.Decode("Gemini response contained no candidates"))
     Error(err) ->
@@ -569,4 +527,69 @@ fn extract_thinking(parts: List(Part)) -> Option(String) {
     [] -> None
     texts -> Some(string.join(texts, "\n"))
   }
+}
+
+/// Builds an HTTP request to list available models.
+pub fn list_models_request(
+  creds: Credentials,
+) -> Result(Request(String), StarletError) {
+  use base_uri <- result.try(
+    uri.parse(creds.base_url)
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
+  )
+
+  let base_uri = internal_http.with_defaults(base_uri, "https", default_host)
+  use http_request <- result.try(
+    request.from_uri(base_uri)
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
+  )
+
+  Ok(
+    http_request
+    |> request.set_method(http.Get)
+    |> request.set_path(base_uri.path <> "/v1beta/models")
+    |> request.set_header("x-goog-api-key", creds.api_key),
+  )
+}
+
+/// Decodes an HTTP response containing the list of models.
+pub fn list_models_response(
+  resp: Response(String),
+) -> Result(List(Model), StarletError) {
+  case resp.status {
+    200 -> decode_models(resp.body)
+    429 -> {
+      let retry_after = internal_http.parse_retry_after(resp.headers)
+      Error(starlet.RateLimited(retry_after))
+    }
+    status -> Error(starlet.Http(status:, body: resp.body))
+  }
+}
+
+fn decode_models(body: String) -> Result(List(Model), StarletError) {
+  let model_decoder = {
+    use name <- decode.field("name", decode.string)
+    use display_name <- decode.field("displayName", decode.string)
+    let id = case string.split(name, "/") {
+      [_, model_id] -> model_id
+      _ -> name
+    }
+    decode.success(Model(id: id, display_name: display_name))
+  }
+
+  let decoder = {
+    use models <- decode.field("models", decode.list(model_decoder))
+    decode.success(models)
+  }
+
+  json.parse(body, decoder)
+  |> result.map_error(fn(err) {
+    starlet.Decode("Failed to decode Gemini models: " <> string.inspect(err))
+  })
 }

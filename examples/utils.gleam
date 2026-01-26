@@ -7,7 +7,6 @@ import starlet/tool.{type ToolError}
 
 pub fn error_to_string(err: starlet.StarletError) -> String {
   case err {
-    starlet.Transport(msg) -> "Transport error: " <> msg
     starlet.Http(status, body) ->
       "HTTP " <> int.to_string(status) <> ": " <> body
     starlet.Decode(msg) -> "Decode error: " <> msg
@@ -74,4 +73,72 @@ pub fn multiply_decoder() -> Decoder(MultiplyArgs) {
 
 pub fn multiply(args: MultiplyArgs) -> Result(Json, ToolError) {
   Ok(json.object([#("result", json.int(args.a * args.b))]))
+}
+
+/// Tool definition for get_weather function.
+pub fn weather_tool() -> tool.Definition {
+  tool.function(
+    name: "get_weather",
+    description: "Get the current weather for a city",
+    parameters: json.object([
+      #("type", json.string("object")),
+      #(
+        "properties",
+        json.object([
+          #(
+            "city",
+            json.object([
+              #("type", json.string("string")),
+              #("description", json.string("The city name")),
+            ]),
+          ),
+        ]),
+      ),
+      #("required", json.array(["city"], json.string)),
+    ]),
+  )
+}
+
+/// Tool definition for multiply function.
+pub fn multiply_tool() -> tool.Definition {
+  tool.function(
+    name: "multiply",
+    description: "Multiply two integers together",
+    parameters: json.object([
+      #("type", json.string("object")),
+      #(
+        "properties",
+        json.object([
+          #(
+            "a",
+            json.object([
+              #("type", json.string("integer")),
+              #("description", json.string("The first number")),
+            ]),
+          ),
+          #(
+            "b",
+            json.object([
+              #("type", json.string("integer")),
+              #("description", json.string("The second number")),
+            ]),
+          ),
+        ]),
+      ),
+      #("required", json.array(["a", "b"], json.string)),
+    ]),
+  )
+}
+
+/// Person type for JSON output examples.
+pub type Person {
+  Person(name: String, age: Int, city: String)
+}
+
+/// Decoder for Person type.
+pub fn person_decoder() -> Decoder(Person) {
+  use name <- decode.field("name", decode.string)
+  use age <- decode.field("age", decode.int)
+  use city <- decode.field("city", decode.string)
+  decode.success(Person(name:, age:, city:))
 }

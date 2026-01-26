@@ -6,14 +6,16 @@
 //// ## Usage
 ////
 //// ```gleam
+//// import gleam/httpc
 //// import starlet
 //// import starlet/ollama
 ////
-//// let client = ollama.new("http://localhost:11434")
+//// let creds = ollama.credentials("http://localhost:11434")
+//// let chat = ollama.chat(creds, "qwen3:0.6b")
+////   |> starlet.user("Hello!")
 ////
-//// starlet.chat(client, "qwen3:0.6b")
-//// |> starlet.user("Hello!")
-//// |> starlet.send()
+//// let assert Ok(http_resp) = httpc.send(ollama.request(chat, creds))
+//// let assert Ok(turn) = ollama.response(http_resp)
 //// ```
 ////
 //// ## Thinking Mode
@@ -21,17 +23,16 @@
 //// For thinking-capable models (DeepSeek-R1, Qwen3), configure thinking:
 ////
 //// ```gleam
-//// starlet.chat(client, "deepseek-r1")
+//// ollama.chat(creds, "deepseek-r1")
 //// |> ollama.with_thinking(ollama.ThinkingEnabled)
 //// |> starlet.user("Solve this step by step...")
-//// |> starlet.send()
 //// ```
 
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/http
-import gleam/http/request
-import gleam/httpc
+import gleam/http/request.{type Request}
+import gleam/http/response.{type Response}
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -39,8 +40,7 @@ import gleam/result
 import gleam/string
 import gleam/uri
 import starlet.{
-  type Chat, type Client, type Message, type Request, type Response,
-  type StarletError, type Turn, AssistantMessage, Chat, ProviderConfig, Response,
+  type Chat, type Message, type StarletError, type Turn, AssistantMessage, Chat,
   ToolResultMessage, UserMessage,
 }
 import starlet/internal/http as internal_http
@@ -63,7 +63,6 @@ pub type Thinking {
 }
 
 /// Ollama provider extension type for thinking mode.
-@internal
 pub type Ext {
   Ext(
     /// Thinking mode configuration.
@@ -73,21 +72,31 @@ pub type Ext {
   )
 }
 
+/// Connection credentials for Ollama.
+pub type Credentials {
+  Credentials(base_url: String)
+}
+
 /// Information about an available model.
 pub type Model {
   Model(name: String, size: String)
 }
 
-/// Creates a new Ollama client with the given base URL.
+/// Creates credentials for connecting to an Ollama server.
 ///
-/// Example: `ollama.new("http://localhost:11434")`
-pub fn new(base_url: String) -> Client(Ext) {
-  let config =
-    ProviderConfig(name: "ollama", base_url: base_url, send: fn(req, ext) {
-      send_request(base_url, req, ext)
-    })
+/// Example: `ollama.credentials("http://localhost:11434")`
+pub fn credentials(base_url: String) -> Credentials {
+  Credentials(base_url:)
+}
+
+/// Creates a new chat with the given credentials and model name.
+pub fn chat(
+  creds: Credentials,
+  model: String,
+) -> Chat(starlet.ToolsOff, starlet.FreeText, starlet.Empty, Ext) {
+  let _ = creds
   let default_ext = Ext(thinking: None, thinking_content: None)
-  starlet.from_provider(config, default_ext)
+  starlet.new_chat(model, default_ext)
 }
 
 /// Configure thinking mode for thinking-capable models.
@@ -104,60 +113,70 @@ pub fn thinking(turn: Turn(t, f, Ext)) -> Option(String) {
   turn.ext.thinking_content
 }
 
-fn send_request(
-  base_url: String,
-  req: Request,
-  ext: Ext,
-) -> Result(#(Response, Ext), StarletError) {
-  let body = json.to_string(encode_request(req, ext))
+/// Builds an HTTP request for sending a chat to Ollama.
+///
+/// The returned request can be sent with any HTTP client.
+pub fn request(
+  chat: Chat(tools, format, starlet.Ready, Ext),
+  creds: Credentials,
+) -> Result(Request(String), StarletError) {
+  let body = json.to_string(encode_request(chat))
 
   use base_uri <- result.try(
-    uri.parse(base_url)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+    uri.parse(creds.base_url)
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
   )
 
   let base_uri = internal_http.with_defaults(base_uri, "http", default_host)
   use http_request <- result.try(
     request.from_uri(base_uri)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
   )
 
-  let http_request =
+  Ok(
     http_request
     |> request.set_method(http.Post)
     |> request.set_path(base_uri.path <> "/api/chat")
     |> request.set_header("content-type", "application/json")
-    |> request.set_body(body)
-
-  let config = httpc.configure() |> httpc.timeout(req.timeout_ms)
-  use response <- result.try(
-    httpc.dispatch(config, http_request)
-    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
+    |> request.set_body(body),
   )
+}
 
-  case response.status {
+/// Decodes an HTTP response from Ollama into a Turn.
+pub fn response(
+  resp: Response(String),
+) -> Result(Turn(tools, format, Ext), StarletError) {
+  case resp.status {
     200 -> {
-      use #(resp, thinking_content) <- result.map(decode_response(response.body))
-      let new_ext = Ext(..ext, thinking_content: thinking_content)
-      #(resp, new_ext)
+      use #(text, thinking_content, tool_calls) <- result.map(decode_response(
+        resp.body,
+      ))
+      let ext = Ext(thinking: None, thinking_content: thinking_content)
+      starlet.Turn(text:, tool_calls:, ext:)
     }
     429 -> {
-      let retry_after = internal_http.parse_retry_after(response.headers)
+      let retry_after = internal_http.parse_retry_after(resp.headers)
       Error(starlet.RateLimited(retry_after))
     }
-    status -> Error(starlet.Http(status: status, body: response.body))
+    status -> Error(starlet.Http(status:, body: resp.body))
   }
 }
 
-/// Encodes a request into JSON for the Ollama `/api/chat` endpoint.
+/// Encodes a chat into JSON for the Ollama `/api/chat` endpoint.
 @internal
-pub fn encode_request(req: Request, ext: Ext) -> Json {
-  let messages = build_messages(req.system_prompt, req.messages)
-  let options = build_options(req.temperature, req.max_tokens)
-  let tools = build_tools(req.tools)
+pub fn encode_request(chat: Chat(tools, format, starlet.Ready, Ext)) -> Json {
+  let messages = build_messages(chat.system_prompt, chat.messages)
+  let options = build_options(chat.temperature, chat.max_tokens)
+  let tools = build_tools(chat.tools)
 
   let base = [
-    #("model", json.string(req.model)),
+    #("model", json.string(chat.model)),
     #("messages", json.array(messages, fn(m) { m })),
     #("stream", json.bool(False)),
   ]
@@ -172,7 +191,7 @@ pub fn encode_request(req: Request, ext: Ext) -> Json {
     None -> base
   }
 
-  let base = case ext.thinking {
+  let base = case chat.ext.thinking {
     Some(ThinkingEnabled) -> list.append(base, [#("think", json.bool(True))])
     Some(ThinkingDisabled) -> list.append(base, [#("think", json.bool(False))])
     Some(ThinkingLow) ->
@@ -193,7 +212,7 @@ pub fn encode_request(req: Request, ext: Ext) -> Json {
     None -> base
   }
 
-  let base = case req.json_schema {
+  let base = case chat.json_schema {
     Some(schema) -> list.append(base, [#("format", schema)])
     None -> base
   }
@@ -310,11 +329,11 @@ fn build_tools(tools: List(tool.Definition)) -> Option(Json) {
 }
 
 /// Decodes a JSON response from the Ollama `/api/chat` endpoint.
-/// Returns the Response and any thinking content.
+/// Returns the text, thinking content, and tool calls.
 @internal
 pub fn decode_response(
   body: String,
-) -> Result(#(Response, Option(String)), StarletError) {
+) -> Result(#(String, Option(String), List(tool.Call)), StarletError) {
   let arguments_decoder =
     decode.one_of(
       {
@@ -363,13 +382,55 @@ pub fn decode_response(
       "message",
       message_decoder,
     )
-    decode.success(#(Response(text: content, tool_calls: tool_calls), thinking))
+    decode.success(#(content, thinking, tool_calls))
   }
 
   json.parse(body, decoder)
   |> result.map_error(fn(err) {
     starlet.Decode("Failed to decode Ollama response: " <> string.inspect(err))
   })
+}
+
+/// Builds an HTTP request to list available models.
+pub fn list_models_request(
+  creds: Credentials,
+) -> Result(Request(String), StarletError) {
+  use base_uri <- result.try(
+    uri.parse(creds.base_url)
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
+  )
+
+  let base_uri = internal_http.with_defaults(base_uri, "http", default_host)
+  use http_request <- result.try(
+    request.from_uri(base_uri)
+    |> result.replace_error(starlet.Http(
+      0,
+      "Invalid base URL: " <> creds.base_url,
+    )),
+  )
+
+  Ok(
+    http_request
+    |> request.set_method(http.Get)
+    |> request.set_path(base_uri.path <> "/api/tags"),
+  )
+}
+
+/// Decodes an HTTP response containing the list of models.
+pub fn list_models_response(
+  resp: Response(String),
+) -> Result(List(Model), StarletError) {
+  case resp.status {
+    200 -> decode_models(resp.body)
+    429 -> {
+      let retry_after = internal_http.parse_retry_after(resp.headers)
+      Error(starlet.RateLimited(retry_after))
+    }
+    status -> Error(starlet.Http(status:, body: resp.body))
+  }
 }
 
 /// Decodes a JSON response from the Ollama `/api/tags` endpoint.
@@ -393,35 +454,4 @@ pub fn decode_models(body: String) -> Result(List(Model), starlet.StarletError) 
   |> result.map_error(fn(err) {
     starlet.Decode("Failed to decode Ollama models: " <> string.inspect(err))
   })
-}
-
-/// Lists available models from the Ollama server.
-pub fn list_models(
-  base_url: String,
-) -> Result(List(Model), starlet.StarletError) {
-  use base_uri <- result.try(
-    uri.parse(base_url)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
-  )
-
-  let base_uri = internal_http.with_defaults(base_uri, "http", default_host)
-  use http_request <- result.try(
-    request.from_uri(base_uri)
-    |> result.replace_error(starlet.Transport("Invalid base URL: " <> base_url)),
-  )
-
-  let http_request =
-    http_request
-    |> request.set_method(http.Get)
-    |> request.set_path(base_uri.path <> "/api/tags")
-
-  use response <- result.try(
-    httpc.send(http_request)
-    |> result.map_error(fn(err) { starlet.Transport(string.inspect(err)) }),
-  )
-
-  case response.status {
-    200 -> decode_models(response.body)
-    status -> Error(starlet.Http(status: status, body: response.body))
-  }
 }

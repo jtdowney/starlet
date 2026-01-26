@@ -1,9 +1,11 @@
 import envoy
 import examples/utils
+import gleam/httpc
 import gleam/int
 import gleam/io
 import gleam/list
 import gleam/result
+import starlet
 import starlet/openai
 
 pub fn main() {
@@ -16,8 +18,15 @@ pub fn main() {
 }
 
 fn run_example(api_key: String) {
+  let creds = openai.credentials(api_key)
+
   let result = {
-    use models <- result.try(openai.list_models(api_key))
+    let req = openai.list_models_request(creds)
+    use resp <- result.try(
+      httpc.send(req)
+      |> result.map_error(fn(_) { starlet.Http(500, "HTTP request failed") }),
+    )
+    use models <- result.try(openai.list_models_response(resp))
 
     io.println("Available models:")
     io.println("")

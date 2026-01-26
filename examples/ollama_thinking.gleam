@@ -1,5 +1,6 @@
 import envoy
 import examples/utils
+import gleam/httpc
 import gleam/io
 import gleam/option.{Some}
 import gleam/result
@@ -14,21 +15,21 @@ pub fn main() {
 }
 
 fn run_example(base_url: String) {
-  let client = ollama.new(base_url)
+  let creds = ollama.credentials(base_url)
 
   let result = {
     let msg =
       "What is the sum of all prime numbers between 1 and 20? Think through this step by step."
 
     let chat =
-      starlet.chat(client, "qwen3:0.6b")
+      ollama.chat(creds, "qwen3:0.6b")
       |> ollama.with_thinking(ollama.ThinkingEnabled)
       |> starlet.user(msg)
 
     io.println("User: " <> msg)
     io.println("")
 
-    use #(_chat, turn) <- result.try(starlet.send(chat))
+    use turn <- result.try(send_chat(chat, creds))
 
     case ollama.thinking(turn) {
       Some(thinking) -> {
@@ -49,4 +50,13 @@ fn run_example(base_url: String) {
     Ok(_) -> Nil
     Error(err) -> io.println("Error: " <> utils.error_to_string(err))
   }
+}
+
+fn send_chat(
+  chat: starlet.Chat(tools, format, starlet.Ready, ollama.Ext),
+  creds: ollama.Credentials,
+) -> Result(starlet.Turn(tools, format, ollama.Ext), starlet.StarletError) {
+  let assert Ok(req) = ollama.request(chat, creds)
+  let assert Ok(resp) = httpc.send(req)
+  ollama.response(resp)
 }

@@ -1,5 +1,6 @@
 import envoy
 import examples/utils
+import gleam/httpc
 import gleam/io
 import gleam/option.{Some}
 import gleam/result
@@ -16,14 +17,14 @@ pub fn main() {
 }
 
 fn run_example(api_key: String) {
-  let client = anthropic.new(api_key)
+  let creds = anthropic.credentials(api_key)
 
   let result = {
     let msg =
       "What is the sum of all prime numbers between 1 and 20? Think through this step by step."
 
     let assert Ok(chat) =
-      starlet.chat(client, "claude-haiku-4-5-20251001")
+      anthropic.chat(creds, "claude-haiku-4-5-20251001")
       |> anthropic.with_thinking(16_384)
     let chat =
       chat
@@ -33,7 +34,7 @@ fn run_example(api_key: String) {
     io.println("User: " <> msg)
     io.println("")
 
-    use #(_chat, turn) <- result.try(starlet.send(chat))
+    use turn <- result.try(send_chat(chat, creds))
 
     case anthropic.thinking(turn) {
       Some(thinking) -> {
@@ -54,4 +55,13 @@ fn run_example(api_key: String) {
     Ok(_) -> Nil
     Error(err) -> io.println("Error: " <> utils.error_to_string(err))
   }
+}
+
+fn send_chat(
+  chat: starlet.Chat(tools, format, starlet.Ready, anthropic.Ext),
+  creds: anthropic.Credentials,
+) -> Result(starlet.Turn(tools, format, anthropic.Ext), starlet.StarletError) {
+  let assert Ok(req) = anthropic.request(chat, creds)
+  let assert Ok(resp) = httpc.send(req)
+  anthropic.response(resp)
 }

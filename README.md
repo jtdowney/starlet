@@ -5,6 +5,8 @@
 
 A unified, provider-agnostic interface for LLM APIs in Gleam.
 
+Starlet uses a **sans-IO architecture**: it provides pure functions for building HTTP requests and decoding responses, but never performs IO itself. Bring your own HTTP client.
+
 ## Installation
 
 ```sh
@@ -14,21 +16,25 @@ gleam add starlet
 ## Quick Start
 
 ```gleam
+import gleam/httpc
 import gleam/io
 import gleam/result
 import starlet
 import starlet/ollama
 
 pub fn main() {
-  let client = ollama.new("http://localhost:11434")
+  let creds = ollama.credentials("http://localhost:11434")
 
   let chat =
-    starlet.chat(client, "gpt-oss:20b")
+    ollama.chat(creds, "qwen3:0.6b")
     |> starlet.system("You are a helpful assistant.")
     |> starlet.user("What is the capital of France?")
 
-  case starlet.send(chat) {
-    Ok(#(_chat, turn)) -> io.println(starlet.text(turn))
+  let assert Ok(req) = ollama.request(chat, creds)
+  let assert Ok(resp) = httpc.send(req)
+
+  case ollama.response(resp) {
+    Ok(turn) -> io.println(starlet.text(turn))
     Error(_) -> io.println("Request failed")
   }
 }
@@ -36,42 +42,60 @@ pub fn main() {
 
 ## Features
 
-- **Tool use**: Support for tool calls and function calling
-- **Structured output**: Generate JSON responses with structured data
-- **Reasoning**: Support for setting budget/effort for reasoning models
+- **Sans-IO design**: Pure request/response functions — use any HTTP client
+- **Tool use**: Function calling with automatic dispatch
+- **Structured output**: JSON responses with schema validation
+- **Reasoning**: Extended thinking for supported models
+- **Cross-platform**: Works on Erlang and JavaScript targets
 
 ## Missing Features
 
 - Streaming responses
-- Image generation
-- Support for provider built in tools (like Web Search)
+- Image inputs
+- Provider built-in tools (web search, code execution)
+
+## Supported Providers
+
+- **Ollama** — `starlet/ollama`
+- **OpenAI** — `starlet/openai`
+- **Anthropic** — `starlet/anthropic`
+- **Google Gemini** — `starlet/gemini`
 
 ## Examples
 
 ### Multi-turn Conversations
 
 ```gleam
+import gleam/httpc
 import gleam/result
 import starlet
 import starlet/ollama
 
 pub fn main() {
-  let client = ollama.new("http://localhost:11434")
+  let creds = ollama.credentials("http://localhost:11434")
 
   let result = {
     let chat =
-      starlet.chat(client, "gpt-oss:20b")
+      ollama.chat(creds, "qwen3:0.6b")
       |> starlet.user("Hello!")
 
-    use #(chat, _turn) <- result.try(starlet.send(chat))
+    use turn <- result.try(send_chat(chat, creds))
 
-    let chat = starlet.user(chat, "How are you?")
-    use #(_chat, turn) <- result.try(starlet.send(chat))
+    let chat =
+      chat
+      |> starlet.append_turn(turn)
+      |> starlet.user("How are you?")
+
+    use turn <- result.try(send_chat(chat, creds))
 
     Ok(starlet.text(turn))
   }
+}
 
-  // result contains the final response or first error
+fn send_chat(chat, creds) {
+  let assert Ok(req) = ollama.request(chat, creds)
+  let assert Ok(resp) = httpc.send(req)
+  ollama.response(resp)
 }
 ```
 
@@ -79,16 +103,17 @@ pub fn main() {
 
 ```gleam
 import gleam/dynamic/decode
+import gleam/httpc
 import gleam/json
+import gleam/list
 import gleam/result
 import starlet
 import starlet/ollama
 import starlet/tool
 
 pub fn main() {
-  let client = ollama.new("http://localhost:11434")
+  let creds = ollama.credentials("http://localhost:11434")
 
-  // Define a tool
   let weather_tool =
     tool.function(
       name: "get_weather",
@@ -101,42 +126,45 @@ pub fn main() {
       ]),
     )
 
-  // Decoder for the tool arguments
   let city_decoder = {
     use city <- decode.field("city", decode.string)
     decode.success(city)
   }
 
-  // Create a handler that executes tools
   let dispatcher =
     tool.dispatch([
       tool.handler("get_weather", city_decoder, fn(city) {
-        let temp = case city {
-          "Tokyo" -> 18
-          "Paris" -> 22
-          _ -> 20
-        }
         Ok(json.object([
-          #("temp", json.int(temp)),
-          #("condition", json.string("sunny")),
+          #("temp", json.int(22)),
+          #("condition", json.string("sunny in " <> city)),
         ]))
       }),
     ])
 
   let chat =
-    starlet.chat(client, "gpt-oss:20b")
+    ollama.chat(creds, "qwen3:0.6b")
     |> starlet.with_tools([weather_tool])
     |> starlet.user("What's the weather in Tokyo?")
 
-  // Use step/apply_tool_results loop to handle tool calls
-  use step <- result.try(starlet.step(chat))
-  case step {
-    starlet.ToolCall(chat:, calls:, ..) -> {
-      use chat <- result.try(starlet.apply_tool_results(chat, calls, dispatcher))
-      starlet.send(chat)  // Continue after tools execute
+  let assert Ok(turn) = send_chat(chat, creds)
+
+  case starlet.has_tool_calls(turn) {
+    False -> starlet.text(turn)
+    True -> {
+      let calls = starlet.tool_calls(turn)
+      let chat = starlet.append_turn(chat, turn)
+      let assert Ok(chat) = starlet.apply_tool_results(chat, calls, dispatcher)
+
+      let assert Ok(turn) = send_chat(chat, creds)
+      starlet.text(turn)
     }
-    starlet.Done(..) -> Ok(step)
   }
+}
+
+fn send_chat(chat, creds) {
+  let assert Ok(req) = ollama.request(chat, creds)
+  let assert Ok(resp) = httpc.send(req)
+  ollama.response(resp)
 }
 ```
 
@@ -144,18 +172,17 @@ pub fn main() {
 
 ```gleam
 import gleam/dynamic/decode
+import gleam/httpc
 import gleam/json
 import gleam/result
 import jscheam/schema
 import starlet
 import starlet/ollama
 
-// Define your output type
 pub type Person {
   Person(name: String, age: Int)
 }
 
-// Create a decoder for the type
 fn person_decoder() -> decode.Decoder(Person) {
   use name <- decode.field("name", decode.string)
   use age <- decode.field("age", decode.int)
@@ -163,9 +190,8 @@ fn person_decoder() -> decode.Decoder(Person) {
 }
 
 pub fn main() {
-  let client = ollama.new("http://localhost:11434")
+  let creds = ollama.credentials("http://localhost:11434")
 
-  // Define the output schema (must match your type)
   let person_schema =
     schema.object([
       schema.prop("name", schema.string()),
@@ -173,19 +199,19 @@ pub fn main() {
     ])
 
   let chat =
-    starlet.chat(client, "gpt-oss:20b")
+    ollama.chat(creds, "qwen3:0.6b")
     |> starlet.with_json_output(person_schema)
     |> starlet.user("Extract: Alice is 30 years old.")
 
-  use #(_chat, turn) <- result.try(starlet.send(chat))
+  let assert Ok(req) = ollama.request(chat, creds)
+  let assert Ok(resp) = httpc.send(req)
+  use turn <- result.try(ollama.response(resp))
 
-  // Get the JSON string
   let json_string = starlet.json(turn)
 
-  // Parse and decode into your type
   case json.parse(json_string, person_decoder()) {
-    Ok(person) -> // person.name == "Alice", person.age == 30
-    Error(_) -> // Handle decode error
+    Ok(person) -> Ok(person)  // person.name == "Alice", person.age == 30
+    Error(_) -> Error(starlet.Decode("Failed to parse person"))
   }
 }
 ```
@@ -193,27 +219,29 @@ pub fn main() {
 ### Reasoning (Extended Thinking)
 
 ```gleam
+import gleam/httpc
 import gleam/option.{None, Some}
 import gleam/result
 import starlet
 import starlet/ollama
 
 pub fn main() {
-  let client = ollama.new("http://localhost:11434")
+  let creds = ollama.credentials("http://localhost:11434")
 
   let chat =
-    starlet.chat(client, "gpt-oss:20b")
-    |> ollama.with_thinking(True)
+    ollama.chat(creds, "qwen3:0.6b")
+    |> ollama.with_thinking(ollama.ThinkingEnabled)
     |> starlet.user("What is the sum of primes between 1 and 20?")
 
-  use #(_chat, turn) <- result.try(starlet.send(chat))
+  let assert Ok(req) = ollama.request(chat, creds)
+  let assert Ok(resp) = httpc.send(req)
+  use turn <- result.try(ollama.response(resp))
 
-  // Access thinking content (provider-specific)
   case ollama.thinking(turn) {
-    Some(thinking) -> // The model's thinking process
-    None -> // No thinking available
+    Some(thinking) -> io.println("Thinking: " <> thinking)
+    None -> Nil
   }
 
-  starlet.text(turn)  // The final answer
+  Ok(starlet.text(turn))
 }
 ```

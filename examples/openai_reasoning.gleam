@@ -1,5 +1,6 @@
 import envoy
 import examples/utils
+import gleam/httpc
 import gleam/io
 import gleam/option.{Some}
 import gleam/result
@@ -16,21 +17,21 @@ pub fn main() {
 }
 
 fn run_example(api_key: String) {
-  let client = openai.new(api_key)
+  let creds = openai.credentials(api_key)
 
   let result = {
     let msg =
       "What is the sum of all prime numbers between 1 and 20? Think through this step by step."
 
     let chat =
-      starlet.chat(client, "gpt-5-nano")
+      openai.chat(creds, "gpt-5-nano")
       |> openai.with_reasoning(openai.ReasoningHigh)
       |> starlet.user(msg)
 
     io.println("User: " <> msg)
     io.println("")
 
-    use #(_chat, turn) <- result.try(starlet.send(chat))
+    use turn <- result.try(send_chat(chat, creds))
 
     case openai.reasoning_summary(turn) {
       Some(summary) -> {
@@ -51,4 +52,13 @@ fn run_example(api_key: String) {
     Ok(_) -> Nil
     Error(err) -> io.println("Error: " <> utils.error_to_string(err))
   }
+}
+
+fn send_chat(
+  chat: starlet.Chat(tools, format, starlet.Ready, openai.Ext),
+  creds: openai.Credentials,
+) -> Result(starlet.Turn(tools, format, openai.Ext), starlet.StarletError) {
+  let assert Ok(req) = openai.request(chat, creds)
+  let assert Ok(resp) = httpc.send(req)
+  openai.response(resp)
 }

@@ -1,7 +1,7 @@
 import examples/utils
+import gleam/httpc
 import gleam/int
 import gleam/io
-import gleam/json
 import gleam/list
 import gleam/result
 import starlet
@@ -9,58 +9,7 @@ import starlet/ollama
 import starlet/tool
 
 pub fn main() {
-  let client = ollama.new("http://localhost:11434")
-
-  let weather_tool =
-    tool.function(
-      name: "get_weather",
-      description: "Get the current weather for a city",
-      parameters: json.object([
-        #("type", json.string("object")),
-        #(
-          "properties",
-          json.object([
-            #(
-              "city",
-              json.object([
-                #("type", json.string("string")),
-                #("description", json.string("The city name")),
-              ]),
-            ),
-          ]),
-        ),
-        #("required", json.array(["city"], json.string)),
-      ]),
-    )
-
-  let multiply_tool =
-    tool.function(
-      name: "multiply",
-      description: "Multiply two integers together",
-      parameters: json.object([
-        #("type", json.string("object")),
-        #(
-          "properties",
-          json.object([
-            #(
-              "a",
-              json.object([
-                #("type", json.string("integer")),
-                #("description", json.string("The first number")),
-              ]),
-            ),
-            #(
-              "b",
-              json.object([
-                #("type", json.string("integer")),
-                #("description", json.string("The second number")),
-              ]),
-            ),
-          ]),
-        ),
-        #("required", json.array(["a", "b"], json.string)),
-      ]),
-    )
+  let creds = ollama.credentials("http://localhost:11434")
 
   let dispatcher =
     tool.dispatch([
@@ -74,31 +23,31 @@ pub fn main() {
     let msg3 = "Can you summarize what you told me?"
 
     let chat =
-      starlet.chat(client, "qwen3:0.6b")
+      ollama.chat(creds, "qwen3:0.6b")
       |> starlet.system(
         "You are a helpful assistant. Use tools when asked about weather or multiplication.",
       )
-      |> starlet.with_tools([weather_tool, multiply_tool])
+      |> starlet.with_tools([utils.weather_tool(), utils.multiply_tool()])
       |> starlet.user(msg1)
 
     io.println("User: " <> msg1)
     io.println("")
 
-    use chat <- result.try(handle_round(chat, dispatcher, 1))
+    use chat <- result.try(handle_round(chat, creds, dispatcher, 1))
 
     let chat = starlet.user(chat, msg2)
 
     io.println("User: " <> msg2)
     io.println("")
 
-    use chat <- result.try(handle_round(chat, dispatcher, 2))
+    use chat <- result.try(handle_round(chat, creds, dispatcher, 2))
 
     let chat = starlet.user(chat, msg3)
 
     io.println("User: " <> msg3)
     io.println("")
 
-    use _chat <- result.try(handle_round(chat, dispatcher, 3))
+    use _chat <- result.try(handle_round(chat, creds, dispatcher, 3))
 
     Ok(Nil)
   }
@@ -110,44 +59,57 @@ pub fn main() {
 }
 
 fn handle_round(
-  chat: starlet.Chat(starlet.ToolsOn, starlet.FreeText, starlet.Ready, ext),
+  chat: starlet.Chat(
+    starlet.ToolsOn,
+    starlet.FreeText,
+    starlet.Ready,
+    ollama.Ext,
+  ),
+  creds: ollama.Credentials,
   dispatcher: tool.Handler,
   round: Int,
 ) -> Result(
-  starlet.Chat(starlet.ToolsOn, starlet.FreeText, starlet.Ready, ext),
+  starlet.Chat(starlet.ToolsOn, starlet.FreeText, starlet.Ready, ollama.Ext),
   starlet.StarletError,
 ) {
   io.println("--- Round " <> int.to_string(round) <> " ---")
 
-  use step <- result.try(starlet.step(chat))
+  use turn <- result.try(send_chat(chat, creds))
 
-  case step {
-    starlet.Done(chat:, turn:) -> {
+  case starlet.has_tool_calls(turn) {
+    False -> {
       io.println("Ollama: " <> starlet.text(turn))
-      Ok(chat)
+      Ok(starlet.append_turn(chat, turn))
     }
 
-    starlet.ToolCall(chat:, turn: _, calls:) -> {
+    True -> {
+      let calls = starlet.tool_calls(turn)
       io.println("Tool calls requested:")
       list.each(calls, fn(call) { io.println("  - " <> tool.to_string(call)) })
 
+      let chat = starlet.append_turn(chat, turn)
       use chat <- result.try(starlet.apply_tool_results(chat, calls, dispatcher))
 
-      use step <- result.try(starlet.step(chat))
-      case step {
-        starlet.Done(chat: final_chat, turn:) -> {
-          io.println("Ollama: " <> starlet.text(turn))
-          Ok(final_chat)
-        }
-        starlet.ToolCall(chat: final_chat, turn:, calls: _) -> {
-          io.println(
-            "Ollama (partial): "
-            <> starlet.text(turn)
-            <> " [more tools requested]",
-          )
-          Ok(final_chat)
-        }
-      }
+      use final_turn <- result.try(send_chat(chat, creds))
+      io.println("Ollama: " <> starlet.text(final_turn))
+      Ok(starlet.append_turn(chat, final_turn))
     }
   }
+}
+
+fn send_chat(
+  chat: starlet.Chat(
+    starlet.ToolsOn,
+    starlet.FreeText,
+    starlet.Ready,
+    ollama.Ext,
+  ),
+  creds: ollama.Credentials,
+) -> Result(
+  starlet.Turn(starlet.ToolsOn, starlet.FreeText, ollama.Ext),
+  starlet.StarletError,
+) {
+  let assert Ok(req) = ollama.request(chat, creds)
+  let assert Ok(resp) = httpc.send(req)
+  ollama.response(resp)
 }

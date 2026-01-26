@@ -1,4 +1,5 @@
 import gleam/dynamic/decode
+import gleam/httpc
 import gleam/json
 import gleam/option.{Some}
 import gleam/string
@@ -8,17 +9,26 @@ import starlet/ollama
 import starlet/tool
 import unitest
 
+fn send_chat(
+  chat: starlet.Chat(tools, format, starlet.Ready, ollama.Ext),
+  creds: ollama.Credentials,
+) -> Result(starlet.Turn(tools, format, ollama.Ext), starlet.StarletError) {
+  let assert Ok(req) = ollama.request(chat, creds)
+  let assert Ok(resp) = httpc.send(req)
+  ollama.response(resp)
+}
+
 pub fn simple_chat_test() -> Nil {
   use <- unitest.tag("integration")
 
-  let client = ollama.new("http://localhost:11434")
+  let creds = ollama.credentials("http://localhost:11434")
 
   let chat =
-    starlet.chat(client, "qwen3:0.6b")
+    ollama.chat(creds, "qwen3:0.6b")
     |> starlet.system("Reply with exactly one word.")
     |> starlet.user("Say hello")
 
-  let assert Ok(#(_chat, turn)) = starlet.send(chat)
+  let assert Ok(turn) = send_chat(chat, creds)
   let response = starlet.text(turn)
 
   assert string.length(response) > 0
@@ -27,7 +37,7 @@ pub fn simple_chat_test() -> Nil {
 pub fn tool_calling_test() -> Nil {
   use <- unitest.tag("integration")
 
-  let client = ollama.new("http://localhost:11434")
+  let creds = ollama.credentials("http://localhost:11434")
 
   let weather_tool =
     tool.function(
@@ -52,14 +62,15 @@ pub fn tool_calling_test() -> Nil {
     )
 
   let chat =
-    starlet.chat(client, "qwen3:0.6b")
+    ollama.chat(creds, "qwen3:0.6b")
     |> starlet.system(
       "You are a helpful assistant. Use the get_weather tool when asked about weather.",
     )
     |> starlet.with_tools([weather_tool])
     |> starlet.user("What is the weather in Paris?")
 
-  let assert Ok(starlet.ToolCall(chat:, turn: _, calls:)) = starlet.step(chat)
+  let assert Ok(turn) = send_chat(chat, creds)
+  let calls = starlet.tool_calls(turn)
   let assert [call] = calls
   assert call.name == "get_weather"
 
@@ -71,9 +82,10 @@ pub fn tool_calling_test() -> Nil {
         #("condition", json.string("sunny")),
       ]),
     )
+  let chat = starlet.append_turn(chat, turn)
   let chat = starlet.with_tool_results(chat, [tool_result])
 
-  let assert Ok(starlet.Done(chat: _, turn:)) = starlet.step(chat)
+  let assert Ok(turn) = send_chat(chat, creds)
   let response = starlet.text(turn)
 
   assert string.length(response) > 0
@@ -82,14 +94,14 @@ pub fn tool_calling_test() -> Nil {
 pub fn thinking_test() -> Nil {
   use <- unitest.tag("integration")
 
-  let client = ollama.new("http://localhost:11434")
+  let creds = ollama.credentials("http://localhost:11434")
 
   let chat =
-    starlet.chat(client, "qwen3:0.6b")
+    ollama.chat(creds, "qwen3:0.6b")
     |> ollama.with_thinking(ollama.ThinkingEnabled)
     |> starlet.user("What is the sum of all prime numbers between 1 and 20?")
 
-  let assert Ok(#(_chat, turn)) = starlet.send(chat)
+  let assert Ok(turn) = send_chat(chat, creds)
   let response = starlet.text(turn)
 
   assert string.length(response) > 0
@@ -100,7 +112,7 @@ pub fn thinking_test() -> Nil {
 pub fn json_output_test() -> Nil {
   use <- unitest.tag("integration")
 
-  let client = ollama.new("http://localhost:11434")
+  let creds = ollama.credentials("http://localhost:11434")
 
   let person_schema =
     schema.object([
@@ -111,7 +123,7 @@ pub fn json_output_test() -> Nil {
     |> schema.disallow_additional_props()
 
   let chat =
-    starlet.chat(client, "qwen3:0.6b")
+    ollama.chat(creds, "qwen3:0.6b")
     |> starlet.system(
       "You are a helpful assistant that extracts structured data.",
     )
@@ -120,7 +132,7 @@ pub fn json_output_test() -> Nil {
       "Extract the person info: John Smith is 30 years old and lives in Paris.",
     )
 
-  let assert Ok(#(_chat, turn)) = starlet.send(chat)
+  let assert Ok(turn) = send_chat(chat, creds)
   let json_string = starlet.json(turn)
 
   let person_decoder = {

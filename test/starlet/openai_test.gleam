@@ -2,71 +2,54 @@ import birdie
 import gleam/dynamic/decode
 import gleam/json
 import gleam/option.{None, Some}
-import starlet.{AssistantMessage, Request, ToolResultMessage, UserMessage}
+import starlet
 import starlet/openai
 import starlet/tool
 
-fn default_ext() -> openai.Ext {
-  openai.Ext(response_id: None, reasoning_effort: None, reasoning_summary: None)
+fn make_chat(
+  model: String,
+) -> starlet.Chat(starlet.ToolsOff, starlet.FreeText, starlet.Empty, openai.Ext) {
+  let creds = openai.credentials("sk-test-key")
+  openai.chat(creds, model)
 }
 
 pub fn encode_simple_request_test() {
-  let req =
-    Request(
-      model: "gpt-5-nano",
-      system_prompt: None,
-      messages: [UserMessage("Hello")],
-      tools: [],
-      temperature: None,
-      max_tokens: None,
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  let chat =
+    make_chat("gpt-5-nano")
+    |> starlet.user("Hello")
 
-  openai.encode_request(req, default_ext())
+  openai.encode_request(chat)
   |> json.to_string
   |> birdie.snap("openai encode simple request")
 }
 
 pub fn encode_request_with_system_prompt_test() {
-  let req =
-    Request(
-      model: "gpt-5-nano",
-      system_prompt: Some("Be helpful"),
-      messages: [UserMessage("Hello")],
-      tools: [],
-      temperature: None,
-      max_tokens: None,
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  let chat =
+    make_chat("gpt-5-nano")
+    |> starlet.system("Be helpful")
+    |> starlet.user("Hello")
 
-  openai.encode_request(req, default_ext())
+  openai.encode_request(chat)
   |> json.to_string
   |> birdie.snap("openai encode request with system prompt")
 }
 
 pub fn encode_request_with_previous_response_id_test() {
-  let req =
-    Request(
-      model: "gpt-5-nano",
-      system_prompt: None,
-      messages: [UserMessage("Follow up")],
-      tools: [],
-      temperature: None,
-      max_tokens: None,
-      json_schema: None,
-      timeout_ms: 60_000,
+  let creds = openai.credentials("sk-test-key")
+  let chat = openai.chat(creds, "gpt-5-nano")
+  // Set the response_id in ext
+  let chat =
+    starlet.Chat(
+      ..chat,
+      ext: openai.Ext(
+        response_id: Some("resp_abc123"),
+        reasoning_effort: None,
+        reasoning_summary: None,
+      ),
     )
+  let chat = starlet.user(chat, "Follow up")
 
-  let ext =
-    openai.Ext(
-      response_id: Some("resp_abc123"),
-      reasoning_effort: None,
-      reasoning_summary: None,
-    )
-
-  openai.encode_request(req, ext)
+  openai.encode_request(chat)
   |> json.to_string
   |> birdie.snap("openai encode request with previous response id")
 }
@@ -87,19 +70,12 @@ pub fn encode_request_with_tools_test() {
       ]),
     )
 
-  let req =
-    Request(
-      model: "gpt-5-nano",
-      system_prompt: None,
-      messages: [UserMessage("What's the weather?")],
-      tools: [weather_tool],
-      temperature: None,
-      max_tokens: None,
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  let chat =
+    make_chat("gpt-5-nano")
+    |> starlet.with_tools([weather_tool])
+    |> starlet.user("What's the weather?")
 
-  openai.encode_request(req, default_ext())
+  openai.encode_request(chat)
   |> json.to_string
   |> birdie.snap("openai encode request with tools")
 }
@@ -112,41 +88,34 @@ pub fn encode_request_with_tool_result_test() {
   let tool_call = tool.Call(id: "call_123", name: "get_weather", arguments:)
   let tool_result = json.object([#("temp", json.int(22))]) |> json.to_string
 
-  let req =
-    Request(
-      model: "gpt-5-nano",
-      system_prompt: None,
-      messages: [
-        UserMessage("What's the weather in Paris?"),
-        AssistantMessage("", [tool_call]),
-        ToolResultMessage("call_123", "get_weather", tool_result),
-      ],
-      tools: [],
-      temperature: None,
-      max_tokens: None,
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  // Build chat with tool call and result
+  let creds = openai.credentials("sk-test-key")
+  let chat =
+    openai.chat(creds, "gpt-5-nano")
+    |> starlet.with_tools([])
+    |> starlet.user("What's the weather in Paris?")
 
-  openai.encode_request(req, default_ext())
+  // Manually add messages
+  let chat =
+    starlet.Chat(..chat, messages: [
+      starlet.UserMessage("What's the weather in Paris?"),
+      starlet.AssistantMessage("", [tool_call]),
+      starlet.ToolResultMessage("call_123", "get_weather", tool_result),
+    ])
+
+  openai.encode_request(chat)
   |> json.to_string
   |> birdie.snap("openai encode request with tool result")
 }
 
 pub fn encode_request_with_options_test() {
-  let req =
-    Request(
-      model: "gpt-5-nano",
-      system_prompt: None,
-      messages: [UserMessage("Hello")],
-      tools: [],
-      temperature: Some(0.7),
-      max_tokens: Some(1000),
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  let chat =
+    make_chat("gpt-5-nano")
+    |> starlet.temperature(0.7)
+    |> starlet.max_tokens(1000)
+    |> starlet.user("Hello")
 
-  openai.encode_request(req, default_ext())
+  openai.encode_request(chat)
   |> json.to_string
   |> birdie.snap("openai encode request with options")
 }
@@ -176,7 +145,7 @@ pub fn decode_simple_response_test() {
     |> json.to_string
 
   let assert Ok(decoded) = openai.decode_response(body)
-  assert decoded.response.text == "Hello!"
+  assert decoded.text == "Hello!"
   assert decoded.response_id == "resp_123"
 }
 
@@ -200,10 +169,10 @@ pub fn decode_response_with_tool_calls_test() {
     |> json.to_string
 
   let assert Ok(decoded) = openai.decode_response(body)
-  assert decoded.response.text == ""
+  assert decoded.text == ""
   assert decoded.response_id == "resp_456"
 
-  let assert [call] = decoded.response.tool_calls
+  let assert [call] = decoded.tool_calls
   assert call.id == "call_abc"
   assert call.name == "get_weather"
   let assert Ok("Paris") =
@@ -263,26 +232,21 @@ pub fn decode_models_invalid_json_test() {
 }
 
 pub fn encode_request_with_reasoning_effort_test() {
-  let req =
-    Request(
-      model: "gpt-5-nano",
-      system_prompt: None,
-      messages: [UserMessage("Think hard about this")],
-      tools: [],
-      temperature: None,
-      max_tokens: None,
-      json_schema: None,
-      timeout_ms: 60_000,
+  let creds = openai.credentials("sk-test-key")
+  let chat = openai.chat(creds, "gpt-5-nano")
+  // Set reasoning effort in ext
+  let chat =
+    starlet.Chat(
+      ..chat,
+      ext: openai.Ext(
+        response_id: None,
+        reasoning_effort: Some(openai.ReasoningHigh),
+        reasoning_summary: None,
+      ),
     )
+  let chat = starlet.user(chat, "Think hard about this")
 
-  let ext =
-    openai.Ext(
-      response_id: None,
-      reasoning_effort: Some(openai.ReasoningHigh),
-      reasoning_summary: None,
-    )
-
-  openai.encode_request(req, ext)
+  openai.encode_request(chat)
   |> json.to_string
   |> birdie.snap("openai encode request with reasoning effort")
 }

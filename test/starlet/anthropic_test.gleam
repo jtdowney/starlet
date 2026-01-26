@@ -1,88 +1,60 @@
 import birdie
 import gleam/dynamic/decode
 import gleam/json
-import gleam/option.{None, Some}
 import gleam/string
-import starlet.{AssistantMessage, Request, ToolResultMessage, UserMessage}
+import starlet
 import starlet/anthropic
 import starlet/tool
 
-fn default_ext() -> anthropic.Ext {
-  anthropic.Ext(thinking_budget: None, thinking: None)
-}
-
-pub fn new_creates_client_test() {
-  let client = anthropic.new("sk-ant-test-key")
-  assert starlet.provider_name(client) == "anthropic"
+fn make_chat(
+  model: String,
+) -> starlet.Chat(
+  starlet.ToolsOff,
+  starlet.FreeText,
+  starlet.Empty,
+  anthropic.Ext,
+) {
+  let creds = anthropic.credentials("sk-ant-test-key")
+  anthropic.chat(creds, model)
 }
 
 pub fn encode_simple_request_test() {
-  let req =
-    Request(
-      model: "claude-haiku-4-5-20251001",
-      system_prompt: None,
-      messages: [UserMessage("Hello")],
-      tools: [],
-      temperature: None,
-      max_tokens: None,
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  let chat =
+    make_chat("claude-haiku-4-5-20251001")
+    |> starlet.user("Hello")
 
-  anthropic.encode_request(req, default_ext())
+  anthropic.encode_request(chat)
   |> json.to_string
   |> birdie.snap("anthropic encode simple request")
 }
 
 pub fn encode_request_with_system_prompt_test() {
-  let req =
-    Request(
-      model: "claude-haiku-4-5-20251001",
-      system_prompt: Some("Be helpful"),
-      messages: [UserMessage("Hello")],
-      tools: [],
-      temperature: None,
-      max_tokens: None,
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  let chat =
+    make_chat("claude-haiku-4-5-20251001")
+    |> starlet.system("Be helpful")
+    |> starlet.user("Hello")
 
-  anthropic.encode_request(req, default_ext())
+  anthropic.encode_request(chat)
   |> json.to_string
   |> birdie.snap("anthropic encode request with system prompt")
 }
 
 pub fn encode_request_applies_default_max_tokens_test() {
-  let req =
-    Request(
-      model: "claude-haiku-4-5-20251001",
-      system_prompt: None,
-      messages: [UserMessage("Hello")],
-      tools: [],
-      temperature: None,
-      max_tokens: None,
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  let chat =
+    make_chat("claude-haiku-4-5-20251001")
+    |> starlet.user("Hello")
 
-  let encoded = anthropic.encode_request(req, default_ext()) |> json.to_string
+  let encoded = anthropic.encode_request(chat) |> json.to_string
   assert string.contains(encoded, "\"max_tokens\":4096")
 }
 
 pub fn encode_request_respects_explicit_max_tokens_test() {
-  let req =
-    Request(
-      model: "claude-haiku-4-5-20251001",
-      system_prompt: None,
-      messages: [UserMessage("Hello")],
-      tools: [],
-      temperature: None,
-      max_tokens: Some(1000),
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  let chat =
+    make_chat("claude-haiku-4-5-20251001")
+    |> starlet.max_tokens(1000)
+    |> starlet.user("Hello")
 
-  let encoded = anthropic.encode_request(req, default_ext()) |> json.to_string
+  let encoded = anthropic.encode_request(chat) |> json.to_string
   assert string.contains(encoded, "\"max_tokens\":1000")
 }
 
@@ -102,19 +74,12 @@ pub fn encode_request_with_tools_test() {
       ]),
     )
 
-  let req =
-    Request(
-      model: "claude-haiku-4-5-20251001",
-      system_prompt: None,
-      messages: [UserMessage("What's the weather?")],
-      tools: [weather_tool],
-      temperature: None,
-      max_tokens: None,
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  let chat =
+    make_chat("claude-haiku-4-5-20251001")
+    |> starlet.with_tools([weather_tool])
+    |> starlet.user("What's the weather?")
 
-  anthropic.encode_request(req, default_ext())
+  anthropic.encode_request(chat)
   |> json.to_string
   |> birdie.snap("anthropic encode request with tools")
 }
@@ -127,23 +92,22 @@ pub fn encode_request_with_tool_result_test() {
   let tool_call = tool.Call(id: "toolu_123", name: "get_weather", arguments:)
   let tool_result = json.object([#("temp", json.int(22))]) |> json.to_string
 
-  let req =
-    Request(
-      model: "claude-haiku-4-5-20251001",
-      system_prompt: None,
-      messages: [
-        UserMessage("What's the weather in Paris?"),
-        AssistantMessage("", [tool_call]),
-        ToolResultMessage("toolu_123", "get_weather", tool_result),
-      ],
-      tools: [],
-      temperature: None,
-      max_tokens: None,
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  // Build chat with tool call and result
+  let creds = anthropic.credentials("sk-ant-test-key")
+  let chat =
+    anthropic.chat(creds, "claude-haiku-4-5-20251001")
+    |> starlet.with_tools([])
+    |> starlet.user("What's the weather in Paris?")
 
-  anthropic.encode_request(req, default_ext())
+  // Manually add messages
+  let chat =
+    starlet.Chat(..chat, messages: [
+      starlet.UserMessage("What's the weather in Paris?"),
+      starlet.AssistantMessage("", [tool_call]),
+      starlet.ToolResultMessage("toolu_123", "get_weather", tool_result),
+    ])
+
+  anthropic.encode_request(chat)
   |> json.to_string
   |> birdie.snap("anthropic encode request with tool result")
 }
@@ -174,9 +138,10 @@ pub fn decode_simple_response_test() {
     ])
     |> json.to_string
 
-  let assert Ok(#(response, _thinking)) = anthropic.decode_response(body)
-  assert response.text == "Hello!"
-  assert response.tool_calls == []
+  let assert Ok(#(text, _thinking, tool_calls)) =
+    anthropic.decode_response(body)
+  assert text == "Hello!"
+  assert tool_calls == []
 }
 
 pub fn decode_response_with_tool_calls_test() {
@@ -207,10 +172,11 @@ pub fn decode_response_with_tool_calls_test() {
     ])
     |> json.to_string
 
-  let assert Ok(#(response, _thinking)) = anthropic.decode_response(body)
-  assert response.text == ""
+  let assert Ok(#(text, _thinking, tool_calls)) =
+    anthropic.decode_response(body)
+  assert text == ""
 
-  let assert [call] = response.tool_calls
+  let assert [call] = tool_calls
   assert call.id == "toolu_abc"
   assert call.name == "get_weather"
   let assert Ok("Paris") =
@@ -240,36 +206,28 @@ pub fn decode_error_response_test() {
 }
 
 pub fn encode_request_with_thinking_test() {
-  let req =
-    Request(
-      model: "claude-haiku-4-5-20251001",
-      system_prompt: None,
-      messages: [UserMessage("Think step by step")],
-      tools: [],
-      temperature: None,
-      max_tokens: Some(32_000),
-      json_schema: None,
-      timeout_ms: 60_000,
-    )
+  let creds = anthropic.credentials("sk-ant-test-key")
+  let chat = anthropic.chat(creds, "claude-haiku-4-5-20251001")
+  let chat = starlet.max_tokens(chat, 32_000)
+  let assert Ok(chat) = anthropic.with_thinking(chat, 16_384)
+  let chat = starlet.user(chat, "Think step by step")
 
-  let ext = anthropic.Ext(thinking_budget: Some(16_384), thinking: None)
-
-  anthropic.encode_request(req, ext)
+  anthropic.encode_request(chat)
   |> json.to_string
   |> birdie.snap("anthropic encode request with thinking")
 }
 
 pub fn with_thinking_valid_budget_test() {
-  let client = anthropic.new("test-key")
-  let chat = starlet.chat(client, "claude-haiku-4-5-20251001")
+  let creds = anthropic.credentials("test-key")
+  let chat = anthropic.chat(creds, "claude-haiku-4-5-20251001")
 
   let assert Ok(_chat) = anthropic.with_thinking(chat, 1024)
   let assert Ok(_chat) = anthropic.with_thinking(chat, 16_384)
 }
 
 pub fn with_thinking_invalid_budget_test() {
-  let client = anthropic.new("test-key")
-  let chat = starlet.chat(client, "claude-haiku-4-5-20251001")
+  let creds = anthropic.credentials("test-key")
+  let chat = anthropic.chat(creds, "claude-haiku-4-5-20251001")
 
   let assert Error(starlet.Provider(provider: "anthropic", message: msg, raw: _)) =
     anthropic.with_thinking(chat, 1023)

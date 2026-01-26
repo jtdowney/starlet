@@ -1,22 +1,24 @@
 //// A unified, provider-agnostic interface for LLM APIs.
 ////
+//// Starlet uses a sans-IO architecture: it provides pure functions for building
+//// HTTP requests and decoding responses, but never performs IO itself.
+////
 //// ## Quick Start
 ////
 //// ```gleam
+//// import gleam/httpc
 //// import starlet
 //// import starlet/ollama
 ////
-//// let client = ollama.new("http://localhost:11434")
-////
-//// let chat =
-////   starlet.chat(client, "qwen3:0.6b")
-////   |> starlet.system("You are a helpful assistant.")
+//// let creds = ollama.credentials("http://localhost:11434")
+//// let chat = ollama.chat(creds, "qwen3:0.6b")
 ////   |> starlet.user("Hello!")
 ////
-//// case starlet.send(chat) {
-////   Ok(#(new_chat, turn)) -> starlet.text(turn)
-////   Error(err) -> // handle error
-//// }
+//// let assert Ok(http_resp) = httpc.send(ollama.request(chat, creds))
+//// let assert Ok(turn) = ollama.response(http_resp)
+//// let chat = starlet.append_turn(chat, turn)
+////
+//// io.println(starlet.text(turn))
 //// ```
 ////
 //// ## Typestate
@@ -28,11 +30,8 @@
 //// ## Error Handling
 ////
 //// ```gleam
-//// import starlet.{Transport, Http, Decode, Provider}
-////
-//// case starlet.send(chat) {
-////   Ok(#(chat, turn)) -> // success
-////   Error(Transport(msg)) -> // network error
+//// case provider.response(http_resp) {
+////   Ok(turn) -> // success
 ////   Error(Http(status, body)) -> // non-200 response
 ////   Error(Decode(msg)) -> // JSON parse error
 ////   Error(Provider(name, msg, raw)) -> // provider error
@@ -46,13 +45,8 @@ import gleam/result
 import jscheam/schema
 import starlet/tool
 
-/// Default timeout for HTTP requests in milliseconds (60 seconds).
-const default_timeout_ms = 60_000
-
 /// Errors that can occur when interacting with LLM providers.
 pub type StarletError {
-  /// Network-level error (connection refused, timeout, etc.)
-  Transport(message: String)
   /// Non-200 HTTP response from the provider
   Http(status: Int, body: String)
   /// Failed to parse the provider's JSON response
@@ -65,39 +59,11 @@ pub type StarletError {
   RateLimited(retry_after: Option(Int))
 }
 
-@internal
+/// Message types in a conversation.
 pub type Message {
   UserMessage(content: String)
   AssistantMessage(content: String, tool_calls: List(tool.Call))
   ToolResultMessage(call_id: String, name: String, content: String)
-}
-
-@internal
-pub type Request {
-  Request(
-    model: String,
-    system_prompt: Option(String),
-    messages: List(Message),
-    tools: List(tool.Definition),
-    temperature: Option(Float),
-    max_tokens: Option(Int),
-    json_schema: Option(Json),
-    timeout_ms: Int,
-  )
-}
-
-@internal
-pub type Response {
-  Response(text: String, tool_calls: List(tool.Call))
-}
-
-@internal
-pub type ProviderConfig(ext) {
-  ProviderConfig(
-    name: String,
-    base_url: String,
-    send: fn(Request, ext) -> Result(#(Response, ext), StarletError),
-  )
 }
 
 @internal
@@ -130,57 +96,6 @@ pub type Ready {
   Ready
 }
 
-@internal
-pub type NoExt {
-  NoExt
-}
-
-/// The result of a single step in a tool-enabled conversation.
-pub type Step(format, ext) {
-  /// Model responded with final text, no tool calls.
-  Done(
-    chat: Chat(ToolsOn, format, Ready, ext),
-    turn: Turn(ToolsOn, format, ext),
-  )
-  /// Model wants to call tools. Provide results to continue.
-  ToolCall(
-    chat: Chat(ToolsOn, format, Ready, ext),
-    turn: Turn(ToolsOn, format, ext),
-    calls: List(tool.Call),
-  )
-}
-
-/// An LLM provider client. Create one using a provider module like `ollama.new()`.
-///
-/// The type parameter tracks the provider's extension type, allowing
-/// provider-specific features (like reasoning effort) to flow through naturally.
-pub type Client(ext) {
-  Client(p: ProviderConfig(ext), default_ext: ext)
-}
-
-/// Returns the name of the provider (e.g., "ollama", "openai").
-pub fn provider_name(client: Client(ext)) -> String {
-  let Client(p, _) = client
-  p.name
-}
-
-@internal
-pub fn mock_client(
-  respond: fn(Request) -> Result(Response, StarletError),
-) -> Client(NoExt) {
-  let send = fn(req, ext) {
-    result.map(respond(req), fn(response) { #(response, ext) })
-  }
-  Client(ProviderConfig(name: "mock", base_url: "", send: send), NoExt)
-}
-
-/// Internal constructor for provider modules to create clients.
-/// Not intended for direct use by library consumers.
-@internal
-pub fn from_provider(p: ProviderConfig(ext), default_ext: ext) -> Client(ext) {
-  Client(p, default_ext)
-}
-
 /// A conversation builder that accumulates messages and settings.
 ///
 /// The type parameters track capabilities at compile time:
@@ -190,7 +105,6 @@ pub fn from_provider(p: ProviderConfig(ext), default_ext: ext) -> Client(ext) {
 /// - `ext`: Provider-specific extension data
 pub type Chat(tools, format, state, ext) {
   Chat(
-    client: Client(ext),
     model: String,
     system_prompt: Option(String),
     messages: List(Message),
@@ -199,34 +113,22 @@ pub type Chat(tools, format, state, ext) {
     max_tokens: Option(Int),
     ext: ext,
     json_schema: Option(Json),
-    timeout_ms: Int,
   )
 }
 
-/// Creates a new chat with the given client and model name.
-///
-/// The chat inherits the provider's extension type from the client,
-/// allowing provider-specific features to be configured.
-///
-/// ```gleam
-/// let chat = starlet.chat(client, "qwen3:0.6b")
-/// ```
-pub fn chat(
-  client: Client(ext),
-  model: String,
-) -> Chat(ToolsOff, FreeText, Empty, ext) {
-  let Client(_, default_ext) = client
+/// Creates a new chat with the given model and extension data.
+/// Provider modules should call this to create chats.
+@internal
+pub fn new_chat(model: String, ext: ext) -> Chat(ToolsOff, FreeText, Empty, ext) {
   Chat(
-    client: client,
     model: model,
     system_prompt: None,
     messages: [],
     tools: [],
     temperature: None,
     max_tokens: None,
-    ext: default_ext,
+    ext: ext,
     json_schema: None,
-    timeout_ms: default_timeout_ms,
   )
 }
 
@@ -280,28 +182,6 @@ pub fn max_tokens(
   value: Int,
 ) -> Chat(tools_state, format, state, ext) {
   Chat(..chat, max_tokens: Some(value))
-}
-
-/// Sets the HTTP request timeout in milliseconds.
-///
-/// Default is 60,000ms (60 seconds). Increase for long-running requests.
-///
-/// ```gleam
-/// starlet.chat(client, "gpt-4o")
-/// |> starlet.with_timeout(120_000)  // 2 minutes
-/// |> starlet.user("Solve this complex problem...")
-/// |> starlet.send()
-/// ```
-pub fn with_timeout(
-  chat: Chat(tools_state, format, state, ext),
-  timeout_ms: Int,
-) -> Chat(tools_state, format, state, ext) {
-  Chat(..chat, timeout_ms: timeout_ms)
-}
-
-/// Returns the current timeout in milliseconds.
-pub fn timeout(chat: Chat(tools_state, format, state, ext)) -> Int {
-  chat.timeout_ms
 }
 
 /// Enable tools on a chat. Transitions ToolsOff → ToolsOn.
@@ -362,61 +242,16 @@ pub fn has_tool_calls(turn: Turn(ToolsOn, format, ext)) -> Bool {
   !list.is_empty(turn.tool_calls)
 }
 
-@internal
-pub fn make_turn_for_testing(content: String) -> Turn(ToolsOff, FreeText, NoExt) {
-  Turn(text: content, tool_calls: [], ext: NoExt)
-}
-
-/// Sends the chat to the LLM and returns the response.
+/// Append a turn's response to the chat history.
 ///
-/// Returns a tuple of the updated chat (with the assistant's response appended
-/// to the history) and the turn containing the response text.
-///
-/// ```gleam
-/// case starlet.send(chat) {
-///   Ok(#(new_chat, turn)) -> starlet.text(turn)
-///   Error(err) -> // handle error
-/// }
-/// ```
-pub fn send(
-  chat: Chat(tools_state, format, Ready, ext),
-) -> Result(
-  #(Chat(tools_state, format, Ready, ext), Turn(tools_state, format, ext)),
-  StarletError,
-) {
-  let Chat(
-    client:,
-    model:,
-    system_prompt:,
-    messages:,
-    tools:,
-    temperature:,
-    max_tokens:,
-    ext:,
-    json_schema:,
-    timeout_ms:,
-  ) = chat
-  let Client(p, _) = client
-
-  let request =
-    Request(
-      model: model,
-      system_prompt: system_prompt,
-      messages: messages,
-      tools: tools,
-      temperature: temperature,
-      max_tokens: max_tokens,
-      json_schema: json_schema,
-      timeout_ms: timeout_ms,
-    )
-
-  use #(response, new_ext) <- result.map(p.send(request, ext))
-  let new_messages =
-    list.append(messages, [AssistantMessage(response.text, response.tool_calls)])
-  let new_chat = Chat(..chat, messages: new_messages, ext: new_ext)
-  let turn =
-    Turn(text: response.text, tool_calls: response.tool_calls, ext: new_ext)
-  #(new_chat, turn)
+/// This updates the chat with the assistant's response, preparing it
+/// for the next user message or tool result.
+pub fn append_turn(
+  chat: Chat(tools, format, Ready, ext),
+  turn: Turn(tools, format, ext),
+) -> Chat(tools, format, Ready, ext) {
+  let message = AssistantMessage(turn.text, turn.tool_calls)
+  Chat(..chat, messages: list.append(chat.messages, [message]), ext: turn.ext)
 }
 
 /// Apply pre-computed tool results to the chat.
@@ -463,14 +298,9 @@ fn run_all_tools(
   }
 }
 
-/// Send a tools-enabled chat and categorize the response.
-/// Returns either Done (no tool calls) or ToolCall (tools requested).
-pub fn step(
-  chat: Chat(ToolsOn, format, Ready, ext),
-) -> Result(Step(format, ext), StarletError) {
-  use #(new_chat, turn) <- result.map(send(chat))
-  case has_tool_calls(turn) {
-    True -> ToolCall(chat: new_chat, turn: turn, calls: turn.tool_calls)
-    False -> Done(chat: new_chat, turn: turn)
-  }
+/// Creates a Turn for testing purposes.
+/// This is useful for testing append_turn and other Turn-related functions.
+@internal
+pub fn make_turn_for_testing(text: String) -> Turn(ToolsOff, FreeText, Nil) {
+  Turn(text:, tool_calls: [], ext: Nil)
 }
