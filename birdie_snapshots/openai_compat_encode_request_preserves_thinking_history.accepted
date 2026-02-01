@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: openai_compat encode request preserves thinking history
+file: ./test/starlet/openai_compat_test.gleam
+test_name: encode_request_with_context_send_with_tags_preserves_history_test
+---
+{"model":"deepseek-r1","messages":[{"role":"user","content":"First question"},{"role":"assistant","content":"<think>Old reasoning</think>First answer"},{"role":"user","content":"Second question"},{"role":"assistant","content":"Second answer"},{"role":"user","content":"Follow up"}]}
