@@ -1,5 +1,4 @@
-import envoy
-import examples/utils
+import example_utils as utils
 import gleam/dynamic/decode
 import gleam/int
 import gleam/io
@@ -8,7 +7,7 @@ import gleam/result
 import gleam/string
 import jscheam/schema
 import starlet
-import starlet/openai
+import starlet/ollama
 
 pub type Person {
   Person(name: String, age: Int, city: String)
@@ -22,16 +21,7 @@ fn person_decoder() -> decode.Decoder(Person) {
 }
 
 pub fn main() {
-  let api_key = envoy.get("OPENAI_API_KEY") |> result.unwrap("")
-
-  case api_key {
-    "" -> io.println("Error: OPENAI_API_KEY environment variable not set")
-    _ -> run_example(api_key)
-  }
-}
-
-fn run_example(api_key: String) {
-  let client = openai.new(api_key)
+  let client = ollama.new("http://localhost:11434")
 
   let person_schema =
     schema.object([
@@ -46,7 +36,7 @@ fn run_example(api_key: String) {
       "Extract the person info: John Smith is 30 years old and lives in Paris."
 
     let chat =
-      starlet.chat(client, "gpt-5-nano")
+      starlet.chat(client, "qwen3:0.6b")
       |> starlet.system(
         "You are a helpful assistant that extracts structured data.",
       )

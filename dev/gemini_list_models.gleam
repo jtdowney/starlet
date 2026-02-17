@@ -1,28 +1,28 @@
 import envoy
-import examples/utils
+import example_utils as utils
 import gleam/int
 import gleam/io
 import gleam/list
 import gleam/result
-import starlet/openai
+import starlet/gemini
 
 pub fn main() {
-  let api_key = envoy.get("OPENAI_API_KEY") |> result.unwrap("")
+  let api_key = envoy.get("GEMINI_API_KEY") |> result.unwrap("")
 
   case api_key {
-    "" -> io.println("Error: OPENAI_API_KEY environment variable not set")
+    "" -> io.println("Error: GEMINI_API_KEY environment variable not set")
     _ -> run_example(api_key)
   }
 }
 
 fn run_example(api_key: String) {
   let result = {
-    use models <- result.try(openai.list_models(api_key))
+    use models <- result.try(gemini.list_models(api_key))
 
-    io.println("Available models:")
+    io.println("Available Gemini models:")
     io.println("")
     list.each(models, fn(model) {
-      io.println("  " <> model.id <> " (owned by: " <> model.owned_by <> ")")
+      io.println("  " <> model.id <> " (" <> model.display_name <> ")")
     })
     io.println("")
     io.println("Total: " <> int.to_string(list.length(models)) <> " models")

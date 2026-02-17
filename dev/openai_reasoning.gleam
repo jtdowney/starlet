@@ -1,6 +1,7 @@
 import envoy
-import examples/utils
+import example_utils as utils
 import gleam/io
+import gleam/option.{Some}
 import gleam/result
 import starlet
 import starlet/openai
@@ -18,24 +19,30 @@ fn run_example(api_key: String) {
   let client = openai.new(api_key)
 
   let result = {
-    let msg1 = "What is the capital of France?"
-    let msg2 = "What is its population?"
+    let msg =
+      "What is the sum of all prime numbers between 1 and 20? Think through this step by step."
 
     let chat =
       starlet.chat(client, "gpt-5-nano")
-      |> starlet.system("You are a helpful assistant. Be concise.")
-      |> starlet.user(msg1)
+      |> openai.with_reasoning(openai.ReasoningHigh)
+      |> starlet.user(msg)
 
-    use #(chat, turn) <- result.try(starlet.send(chat))
-    io.println("User: " <> msg1)
-    io.println("GPT: " <> starlet.text(turn))
+    io.println("User: " <> msg)
     io.println("")
 
-    let chat = starlet.user(chat, msg2)
-
     use #(_chat, turn) <- result.try(starlet.send(chat))
-    io.println("User: " <> msg2)
-    io.println("GPT: " <> starlet.text(turn))
+
+    case openai.reasoning_summary(turn) {
+      Some(summary) -> {
+        io.println("=== GPT's Reasoning Summary ===")
+        io.println(summary)
+        io.println("")
+      }
+      option.None -> io.println("(No reasoning summary)")
+    }
+
+    io.println("=== GPT's Response ===")
+    io.println(starlet.text(turn))
 
     Ok(Nil)
   }

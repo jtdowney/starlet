@@ -1,5 +1,5 @@
 import envoy
-import examples/utils
+import example_utils as utils
 import gleam/dynamic/decode
 import gleam/int
 import gleam/io
@@ -8,7 +8,7 @@ import gleam/result
 import gleam/string
 import jscheam/schema
 import starlet
-import starlet/gemini
+import starlet/openai
 
 pub type Person {
   Person(name: String, age: Int, city: String)
@@ -22,16 +22,16 @@ fn person_decoder() -> decode.Decoder(Person) {
 }
 
 pub fn main() {
-  let api_key = envoy.get("GEMINI_API_KEY") |> result.unwrap("")
+  let api_key = envoy.get("OPENAI_API_KEY") |> result.unwrap("")
 
   case api_key {
-    "" -> io.println("Error: GEMINI_API_KEY environment variable not set")
+    "" -> io.println("Error: OPENAI_API_KEY environment variable not set")
     _ -> run_example(api_key)
   }
 }
 
 fn run_example(api_key: String) {
-  let client = gemini.new(api_key)
+  let client = openai.new(api_key)
 
   let person_schema =
     schema.object([
@@ -39,13 +39,14 @@ fn run_example(api_key: String) {
       schema.prop("age", schema.integer()),
       schema.prop("city", schema.string()),
     ])
+    |> schema.disallow_additional_props()
 
   let result = {
     let msg =
       "Extract the person info: John Smith is 30 years old and lives in Paris."
 
     let chat =
-      starlet.chat(client, "gemini-2.5-flash")
+      starlet.chat(client, "gpt-5-nano")
       |> starlet.system(
         "You are a helpful assistant that extracts structured data.",
       )

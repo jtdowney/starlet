@@ -1,15 +1,25 @@
-import examples/utils
+import envoy
+import example_utils as utils
 import gleam/int
 import gleam/io
 import gleam/json
 import gleam/list
 import gleam/result
 import starlet
-import starlet/ollama
+import starlet/openai
 import starlet/tool
 
 pub fn main() {
-  let client = ollama.new("http://localhost:11434")
+  let api_key = envoy.get("OPENAI_API_KEY") |> result.unwrap("")
+
+  case api_key {
+    "" -> io.println("Error: OPENAI_API_KEY environment variable not set")
+    _ -> run_example(api_key)
+  }
+}
+
+fn run_example(api_key: String) {
+  let client = openai.new(api_key)
 
   let weather_tool =
     tool.function(
@@ -69,12 +79,12 @@ pub fn main() {
     ])
 
   let result = {
-    let msg1 = "What's the weather like in Paris?"
-    let msg2 = "Thanks! What's 6 times 7?"
+    let msg1 = "What's the weather like in Tokyo? Also, what's 6 times 7?"
+    let msg2 = "Thanks! Now what about the weather in Paris?"
     let msg3 = "Can you summarize what you told me?"
 
     let chat =
-      starlet.chat(client, "qwen3:0.6b")
+      starlet.chat(client, "gpt-5-nano")
       |> starlet.system(
         "You are a helpful assistant. Use tools when asked about weather or multiplication.",
       )
@@ -123,7 +133,7 @@ fn handle_round(
 
   case step {
     starlet.Done(chat:, turn:) -> {
-      io.println("Ollama: " <> starlet.text(turn))
+      io.println("GPT: " <> starlet.text(turn))
       Ok(chat)
     }
 
@@ -136,14 +146,12 @@ fn handle_round(
       use step <- result.try(starlet.step(chat))
       case step {
         starlet.Done(chat: final_chat, turn:) -> {
-          io.println("Ollama: " <> starlet.text(turn))
+          io.println("GPT: " <> starlet.text(turn))
           Ok(final_chat)
         }
         starlet.ToolCall(chat: final_chat, turn:, calls: _) -> {
           io.println(
-            "Ollama (partial): "
-            <> starlet.text(turn)
-            <> " [more tools requested]",
+            "GPT (partial): " <> starlet.text(turn) <> " [more tools requested]",
           )
           Ok(final_chat)
         }

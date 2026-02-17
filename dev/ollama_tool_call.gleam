@@ -1,25 +1,15 @@
-import envoy
-import examples/utils
+import example_utils as utils
 import gleam/int
 import gleam/io
 import gleam/json
 import gleam/list
 import gleam/result
 import starlet
-import starlet/anthropic
+import starlet/ollama
 import starlet/tool
 
 pub fn main() {
-  let api_key = envoy.get("ANTHROPIC_API_KEY") |> result.unwrap("")
-
-  case api_key {
-    "" -> io.println("Error: ANTHROPIC_API_KEY environment variable not set")
-    _ -> run_example(api_key)
-  }
-}
-
-fn run_example(api_key: String) {
-  let client = anthropic.new(api_key)
+  let client = ollama.new("http://localhost:11434")
 
   let weather_tool =
     tool.function(
@@ -84,7 +74,7 @@ fn run_example(api_key: String) {
     let msg3 = "Can you summarize what you told me?"
 
     let chat =
-      starlet.chat(client, "claude-haiku-4-5-20251001")
+      starlet.chat(client, "qwen3:0.6b")
       |> starlet.system(
         "You are a helpful assistant. Use tools when asked about weather or multiplication.",
       )
@@ -133,7 +123,7 @@ fn handle_round(
 
   case step {
     starlet.Done(chat:, turn:) -> {
-      io.println("Claude: " <> starlet.text(turn))
+      io.println("Ollama: " <> starlet.text(turn))
       Ok(chat)
     }
 
@@ -146,12 +136,12 @@ fn handle_round(
       use step <- result.try(starlet.step(chat))
       case step {
         starlet.Done(chat: final_chat, turn:) -> {
-          io.println("Claude: " <> starlet.text(turn))
+          io.println("Ollama: " <> starlet.text(turn))
           Ok(final_chat)
         }
         starlet.ToolCall(chat: final_chat, turn:, calls: _) -> {
           io.println(
-            "Claude (partial): "
+            "Ollama (partial): "
             <> starlet.text(turn)
             <> " [more tools requested]",
           )

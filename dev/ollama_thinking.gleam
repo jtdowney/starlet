@@ -1,5 +1,5 @@
 import envoy
-import examples/utils
+import example_utils as utils
 import gleam/io
 import gleam/option.{Some}
 import gleam/result

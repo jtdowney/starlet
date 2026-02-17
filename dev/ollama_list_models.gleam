@@ -1,4 +1,4 @@
-import examples/utils
+import example_utils as utils
 import gleam/int
 import gleam/io
 import gleam/list
