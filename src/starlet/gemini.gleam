@@ -108,7 +108,8 @@ pub fn with_thinking(
         message: "thinking budget must be at most 32768 tokens",
         raw: "",
       ))
-    _ -> Ok(Chat(..chat, ext: Ext(..chat.ext, thinking_budget: Some(budget))))
+    ThinkingOff | ThinkingDynamic | ThinkingFixed(_) ->
+      Ok(Chat(..chat, ext: Ext(..chat.ext, thinking_budget: Some(budget))))
   }
 }
 
@@ -538,7 +539,9 @@ fn extract_text(parts: List(Part)) -> String {
   list.filter_map(parts, fn(part) {
     case part {
       TextPart(text) -> Ok(text)
-      _ -> Error(Nil)
+      FunctionCallPart(_) -> Error(Nil)
+      ThoughtPart(_) -> Error(Nil)
+      SkippedPart -> Error(Nil)
     }
   })
   |> string.join("")
@@ -551,7 +554,9 @@ fn extract_tool_calls(parts: List(Part)) -> List(tool.Call) {
         let id = "gemini-" <> int.to_string(index)
         [tool.Call(..call, id: id), ..acc]
       }
-      _ -> acc
+      TextPart(_) -> acc
+      ThoughtPart(_) -> acc
+      SkippedPart -> acc
     }
   })
   |> list.reverse
@@ -562,7 +567,9 @@ fn extract_thinking(parts: List(Part)) -> Option(String) {
     list.filter_map(parts, fn(part) {
       case part {
         ThoughtPart(text) -> Ok(text)
-        _ -> Error(Nil)
+        TextPart(_) -> Error(Nil)
+        FunctionCallPart(_) -> Error(Nil)
+        SkippedPart -> Error(Nil)
       }
     })
   case thinking_texts {

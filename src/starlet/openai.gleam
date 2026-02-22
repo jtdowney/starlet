@@ -475,7 +475,9 @@ fn extract_text(items: List(OutputItem)) -> String {
   list.filter_map(items, fn(item) {
     case item {
       MessageItem(text) -> Ok(text)
-      _ -> Error(Nil)
+      FunctionCallItem(_) -> Error(Nil)
+      ReasoningSummaryItem(_) -> Error(Nil)
+      SkippedItem -> Error(Nil)
     }
   })
   |> string.join("")
@@ -485,7 +487,9 @@ fn extract_tool_calls(items: List(OutputItem)) -> List(tool.Call) {
   list.filter_map(items, fn(item) {
     case item {
       FunctionCallItem(call) -> Ok(call)
-      _ -> Error(Nil)
+      MessageItem(_) -> Error(Nil)
+      ReasoningSummaryItem(_) -> Error(Nil)
+      SkippedItem -> Error(Nil)
     }
   })
 }
@@ -495,7 +499,9 @@ fn extract_reasoning_summary(items: List(OutputItem)) -> Option(String) {
     list.filter_map(items, fn(item) {
       case item {
         ReasoningSummaryItem(text) -> Ok(text)
-        _ -> Error(Nil)
+        MessageItem(_) -> Error(Nil)
+        FunctionCallItem(_) -> Error(Nil)
+        SkippedItem -> Error(Nil)
       }
     })
   case summaries {

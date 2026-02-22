@@ -3,7 +3,7 @@
 import gleam/http/request
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/uri.{type Uri, Uri}
@@ -28,7 +28,7 @@ pub fn set_optional_port(
 ) -> request.Request(String) {
   case port {
     Some(p) -> request.set_port(req, p)
-    _ -> req
+    None -> req
   }
 }
 

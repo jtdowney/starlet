@@ -381,7 +381,10 @@ fn collect_tool_results_acc(
   case messages {
     [ToolResultMessage(id, name, content), ..rest] ->
       collect_tool_results_acc(rest, [#(id, name, content), ..acc])
-    _ -> #(list.reverse(acc), messages)
+    [] | [UserMessage(_), ..] | [AssistantMessage(_, _), ..] -> #(
+      list.reverse(acc),
+      messages,
+    )
   }
 }
 
@@ -469,7 +472,9 @@ fn extract_text(blocks: List(ContentBlock)) -> String {
   list.filter_map(blocks, fn(block) {
     case block {
       TextBlock(text) -> Ok(text)
-      _ -> Error(Nil)
+      ToolUseBlock(_) -> Error(Nil)
+      ThinkingBlock(_) -> Error(Nil)
+      SkippedBlock -> Error(Nil)
     }
   })
   |> string.join("")
@@ -479,7 +484,9 @@ fn extract_tool_calls(blocks: List(ContentBlock)) -> List(tool.Call) {
   list.filter_map(blocks, fn(block) {
     case block {
       ToolUseBlock(call) -> Ok(call)
-      _ -> Error(Nil)
+      TextBlock(_) -> Error(Nil)
+      ThinkingBlock(_) -> Error(Nil)
+      SkippedBlock -> Error(Nil)
     }
   })
 }
@@ -489,7 +496,9 @@ fn extract_thinking(blocks: List(ContentBlock)) -> Option(String) {
     list.filter_map(blocks, fn(block) {
       case block {
         ThinkingBlock(text) -> Ok(text)
-        _ -> Error(Nil)
+        TextBlock(_) -> Error(Nil)
+        ToolUseBlock(_) -> Error(Nil)
+        SkippedBlock -> Error(Nil)
       }
     })
   case thinking_texts {
