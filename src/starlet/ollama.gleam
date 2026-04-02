@@ -237,10 +237,11 @@ fn build_messages(
                 #("tool_calls", json.array(tool_calls, encode_tool_call)),
               ])
           }
-        ToolResultMessage(_call_id, name, content) ->
+        ToolResultMessage(call_id, name, content) ->
           json.object([
             #("role", json.string("tool")),
-            #("name", json.string(name)),
+            #("tool_name", json.string(name)),
+            #("tool_call_id", json.string(call_id)),
             #("content", json.string(content)),
           ])
       }
