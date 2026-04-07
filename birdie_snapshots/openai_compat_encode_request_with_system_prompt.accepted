@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: openai_compat encode request with system prompt
+file: ./test/starlet/openai_compat_test.gleam
+test_name: encode_request_with_system_prompt_test
+---
+{"model":"gpt-4o","messages":[{"role":"system","content":"Be helpful"},{"role":"user","content":"Hello"}]}
