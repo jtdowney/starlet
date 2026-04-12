@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: ollama encode request with thinking off
+file: ./test/starlet/ollama_test.gleam
+test_name: encode_request_with_thinking_off_test
+---
+{"model":"deepseek-r1","messages":[{"role":"user","content":"No thinking please"}],"stream":false,"think":false}

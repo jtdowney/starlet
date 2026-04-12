@@ -1,39 +1,35 @@
-import envoy
 import example_utils as utils
+import gleam/httpc
 import gleam/io
-import gleam/option.{Some}
+import gleam/option
 import gleam/result
 import starlet
 import starlet/openai
 
 pub fn main() {
-  let api_key = envoy.get("OPENAI_API_KEY") |> result.unwrap("")
-
-  case api_key {
-    "" -> io.println("Error: OPENAI_API_KEY environment variable not set")
-    _ -> run_example(api_key)
-  }
+  use api_key <- utils.require_env("OPENAI_API_KEY")
+  run_example(api_key)
 }
 
 fn run_example(api_key: String) {
-  let client = openai.new(api_key)
+  let creds = openai.credentials(api_key)
 
   let result = {
     let msg =
       "What is the sum of all prime numbers between 1 and 20? Think through this step by step."
 
     let chat =
-      starlet.chat(client, "gpt-5-nano")
-      |> openai.with_reasoning(openai.ReasoningHigh)
+      openai.chat("gpt-5-nano")
+      |> openai.with_reasoning(effort: openai.ReasoningHigh)
       |> starlet.user(msg)
 
     io.println("User: " <> msg)
     io.println("")
 
-    use #(_chat, turn) <- result.try(starlet.send(chat))
+    use turn <- result.try(send_chat(chat, creds))
 
     case openai.reasoning_summary(turn) {
-      Some(summary) -> {
+      option.Some(summary) -> {
         io.println("=== GPT's Reasoning Summary ===")
         io.println(summary)
         io.println("")
@@ -51,4 +47,12 @@ fn run_example(api_key: String) {
     Ok(_) -> Nil
     Error(err) -> io.println("Error: " <> utils.error_to_string(err))
   }
+}
+
+fn send_chat(
+  chat: starlet.Chat(tools, format, starlet.Ready, openai.Ext),
+  creds: openai.Credentials,
+) -> Result(starlet.Turn(tools, format, openai.Ext), starlet.Error) {
+  let assert Ok(resp) = openai.request(chat, creds) |> httpc.send
+  openai.response(chat, resp)
 }

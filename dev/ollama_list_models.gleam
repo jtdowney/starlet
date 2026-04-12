@@ -1,13 +1,22 @@
 import example_utils as utils
+import gleam/httpc
 import gleam/int
 import gleam/io
 import gleam/list
 import gleam/result
+import starlet
 import starlet/ollama
 
 pub fn main() {
+  let assert Ok(creds) = ollama.credentials("http://localhost:11434")
+
   let result = {
-    use models <- result.try(ollama.list_models("http://localhost:11434"))
+    use resp <- result.try(
+      ollama.list_models_request(creds)
+      |> httpc.send
+      |> result.map_error(fn(_) { starlet.Transport("HTTP request failed") }),
+    )
+    use models <- result.try(ollama.list_models_response(resp))
 
     io.println("Available models:")
     io.println("")

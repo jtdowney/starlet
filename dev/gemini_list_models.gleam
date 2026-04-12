@@ -1,23 +1,27 @@
-import envoy
 import example_utils as utils
+import gleam/httpc
 import gleam/int
 import gleam/io
 import gleam/list
 import gleam/result
+import starlet
 import starlet/gemini
 
 pub fn main() {
-  let api_key = envoy.get("GEMINI_API_KEY") |> result.unwrap("")
-
-  case api_key {
-    "" -> io.println("Error: GEMINI_API_KEY environment variable not set")
-    _ -> run_example(api_key)
-  }
+  use api_key <- utils.require_env("GEMINI_API_KEY")
+  run_example(api_key)
 }
 
 fn run_example(api_key: String) {
+  let creds = gemini.credentials(api_key)
+
   let result = {
-    use models <- result.try(gemini.list_models(api_key))
+    use resp <- result.try(
+      gemini.list_models_request(creds)
+      |> httpc.send
+      |> result.map_error(fn(_) { starlet.Transport("HTTP request failed") }),
+    )
+    use models <- result.try(gemini.list_models_response(resp))
 
     io.println("Available Gemini models:")
     io.println("")

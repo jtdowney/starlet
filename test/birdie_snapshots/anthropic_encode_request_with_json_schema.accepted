@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: anthropic encode request with json schema
+file: ./test/starlet/anthropic_test.gleam
+test_name: encode_request_with_json_schema_test
+---
+{"model":"claude-haiku-4-5-20251001","max_tokens":4096,"messages":[{"role":"user","content":"Give me a name"}],"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}}

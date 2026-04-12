@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: gemini stream tool call round trip
+file: ./test/starlet/gemini_test.gleam
+test_name: stream_tool_call_round_trip_test
+---
+{"tools":[{"functionDeclarations":[{"name":"get_weather","description":"Get current weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}]}],"contents":[{"role":"user","parts":[{"text":"What's the weather in Paris?"}]},{"role":"model","parts":[{"functionCall":{"name":"get_weather","args":{"city":"Paris"}}}]},{"role":"user","parts":[{"functionResponse":{"name":"get_weather","response":{"temp":22}}}]}]}

@@ -1,6 +1,6 @@
 ---
-version: 1.5.3
-title: encode simple request
+version: 2.0.0
+title: ollama encode simple request
 file: ./test/starlet/ollama_test.gleam
 test_name: encode_simple_request_test
 ---

@@ -1,6 +1,5 @@
-import envoy
 import example_utils as utils
-import gleam/dynamic/decode
+import gleam/httpc
 import gleam/int
 import gleam/io
 import gleam/json
@@ -10,28 +9,13 @@ import jscheam/schema
 import starlet
 import starlet/openai
 
-pub type Person {
-  Person(name: String, age: Int, city: String)
-}
-
-fn person_decoder() -> decode.Decoder(Person) {
-  use name <- decode.field("name", decode.string)
-  use age <- decode.field("age", decode.int)
-  use city <- decode.field("city", decode.string)
-  decode.success(Person(name:, age:, city:))
-}
-
 pub fn main() {
-  let api_key = envoy.get("OPENAI_API_KEY") |> result.unwrap("")
-
-  case api_key {
-    "" -> io.println("Error: OPENAI_API_KEY environment variable not set")
-    _ -> run_example(api_key)
-  }
+  use api_key <- utils.require_env("OPENAI_API_KEY")
+  run_example(api_key)
 }
 
 fn run_example(api_key: String) {
-  let client = openai.new(api_key)
+  let creds = openai.credentials(api_key)
 
   let person_schema =
     schema.object([
@@ -46,7 +30,7 @@ fn run_example(api_key: String) {
       "Extract the person info: John Smith is 30 years old and lives in Paris."
 
     let chat =
-      starlet.chat(client, "gpt-5-nano")
+      openai.chat("gpt-5-nano")
       |> starlet.system(
         "You are a helpful assistant that extracts structured data.",
       )
@@ -56,13 +40,13 @@ fn run_example(api_key: String) {
     io.println("User: " <> msg)
     io.println("")
 
-    use #(_chat, turn) <- result.try(starlet.send(chat))
+    use turn <- result.try(send_chat(chat, creds))
 
     let json_string = starlet.json(turn)
     io.println("Raw JSON: " <> json_string)
     io.println("")
 
-    case json.parse(json_string, person_decoder()) {
+    case json.parse(json_string, utils.person_decoder()) {
       Ok(person) -> {
         io.println("Parsed person:")
         io.println("  Name: " <> person.name)
@@ -81,4 +65,12 @@ fn run_example(api_key: String) {
     Ok(_) -> Nil
     Error(err) -> io.println("Error: " <> utils.error_to_string(err))
   }
+}
+
+fn send_chat(
+  chat: starlet.Chat(tools, starlet.JsonFormat, starlet.Ready, openai.Ext),
+  creds: openai.Credentials,
+) -> Result(starlet.Turn(tools, starlet.JsonFormat, openai.Ext), starlet.Error) {
+  let assert Ok(resp) = openai.request(chat, creds) |> httpc.send
+  openai.response(chat, resp)
 }

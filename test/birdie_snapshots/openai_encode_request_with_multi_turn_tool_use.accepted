@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: openai encode request with multi turn tool use
+file: ./test/starlet/openai_test.gleam
+test_name: encode_request_with_multi_turn_tool_use_test
+---
+{"model":"gpt-5-nano","input":[{"role":"user","content":"What's the weather in Paris?"},{"type":"function_call","call_id":"call_123","name":"get_weather","arguments":"{\"city\":\"Paris\"}"},{"type":"function_call_output","call_id":"call_123","output":"{\"temp\":22}"},{"role":"assistant","content":"It's 22°C in Paris!"},{"role":"user","content":"Now check London too"}]}

@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: openai encode request with conversation
+file: ./test/starlet/openai_test.gleam
+test_name: encode_request_with_conversation_test
+---
+{"model":"gpt-5-nano","input":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hi there!"},{"role":"user","content":"How are you?"}]}

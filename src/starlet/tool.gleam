@@ -63,15 +63,18 @@ pub type ToolResult {
 }
 
 /// Errors that can occur during tool execution.
-pub type ToolError {
+pub type Error {
+  /// No handler registered for this tool name.
   NotFound(name: String)
+  /// Tool arguments could not be decoded.
   InvalidArguments(message: String)
+  /// Tool handler returned an error during execution.
   ExecutionFailed(message: String)
 }
 
 /// A function that handles a tool call and returns a result.
 pub type Handler =
-  fn(Call) -> Result(ToolResult, ToolError)
+  fn(Call) -> Result(ToolResult, Error)
 
 /// Create a function tool definition.
 pub fn function(
@@ -83,12 +86,12 @@ pub fn function(
 }
 
 /// Create a successful tool result from a call.
-pub fn success(call: Call, output: Json) -> ToolResult {
+pub fn success(call: Call, output output: Json) -> ToolResult {
   ToolResult(id: call.id, name: call.name, output:)
 }
 
 /// Create an error result (encoded as JSON with error message).
-pub fn error(call: Call, message: String) -> ToolResult {
+pub fn error(call: Call, message message: String) -> ToolResult {
   ToolResult(
     id: call.id,
     name: call.name,
@@ -99,9 +102,9 @@ pub fn error(call: Call, message: String) -> ToolResult {
 /// Create a dispatcher that routes calls to the right handler by name.
 pub fn dispatch(handlers: List(#(String, Handler))) -> Handler {
   fn(call: Call) {
-    case list.find(handlers, fn(h) { h.0 == call.name }) {
-      Ok(#(_, handle)) -> handle(call)
-      Error(_) -> Error(NotFound(call.name))
+    case list.key_find(handlers, call.name) {
+      Ok(handle) -> handle(call)
+      Error(Nil) -> Error(NotFound(call.name))
     }
   }
 }
@@ -116,12 +119,10 @@ pub fn to_string(call: Call) -> String {
 /// Create a handler tuple from name and a function that receives Dynamic arguments.
 /// For most cases, prefer `handler` which provides automatic argument decoding.
 pub fn dynamic_handler(
-  name: String,
-  run: fn(Dynamic) -> Result(Json, ToolError),
+  name name: String,
+  run run: fn(Dynamic) -> Result(Json, Error),
 ) -> #(String, Handler) {
-  #(name, fn(call: Call) {
-    result.map(run(call.arguments), fn(output) { success(call, output) })
-  })
+  #(name, fn(call: Call) { result.map(run(call.arguments), success(call, _)) })
 }
 
 /// Create a handler tuple that automatically decodes arguments to a typed value.
@@ -139,18 +140,16 @@ pub fn dynamic_handler(
 ///   })
 /// ```
 pub fn handler(
-  name: String,
-  decoder: decode.Decoder(a),
-  run: fn(a) -> Result(Json, ToolError),
+  name name: String,
+  decoder decoder: decode.Decoder(a),
+  run run: fn(a) -> Result(Json, Error),
 ) -> #(String, Handler) {
   #(name, fn(call: Call) {
-    use args <- result.try(
-      decode.run(call.arguments, decoder)
-      |> result.map_error(fn(errors) {
-        InvalidArguments("Failed to decode: " <> string.inspect(errors))
-      }),
-    )
-    result.map(run(args), fn(output) { success(call, output) })
+    case decode.run(call.arguments, decoder) {
+      Ok(args) -> result.map(run(args), success(call, _))
+      Error(errors) ->
+        Error(InvalidArguments("Failed to decode: " <> string.inspect(errors)))
+    }
   })
 }
 
@@ -169,8 +168,8 @@ pub fn dynamic_to_json(dyn: Dynamic) -> Json {
     ])
 
   case decode.run(dyn, decoder) {
-    Ok(j) -> j
-    Error(_) -> json.null()
+    Ok(value) -> value
+    Error(_) -> json.string(string.inspect(dyn))
   }
 }
 
@@ -185,16 +184,13 @@ fn decode_null() -> decode.Decoder(Json) {
 
 fn decode_list() -> decode.Decoder(Json) {
   use items <- decode.then(decode.list(decode.dynamic))
-  decode.success(json.array(list.map(items, dynamic_to_json), fn(x) { x }))
+  decode.success(json.preprocessed_array(list.map(items, dynamic_to_json)))
 }
 
 fn decode_object() -> decode.Decoder(Json) {
-  use d <- decode.then(decode.dict(decode.string, decode.dynamic))
+  use entries <- decode.then(decode.dict(decode.string, decode.dynamic))
   let pairs =
-    dict.to_list(d)
-    |> list.map(fn(p) {
-      let #(k, v) = p
-      #(k, dynamic_to_json(v))
-    })
+    dict.to_list(entries)
+    |> list.map(fn(pair) { #(pair.0, dynamic_to_json(pair.1)) })
   decode.success(json.object(pairs))
 }

@@ -1,5 +1,5 @@
 ---
-version: 1.5.3
+version: 2.0.0
 title: gemini encode request with tool result
 file: ./test/starlet/gemini_test.gleam
 test_name: encode_request_with_tool_result_test

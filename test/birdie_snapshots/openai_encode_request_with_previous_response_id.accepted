@@ -1,5 +1,5 @@
 ---
-version: 1.5.3
+version: 2.0.0
 title: openai encode request with previous response id
 file: ./test/starlet/openai_test.gleam
 test_name: encode_request_with_previous_response_id_test

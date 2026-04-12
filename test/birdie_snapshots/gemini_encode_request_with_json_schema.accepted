@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: gemini encode request with json schema
+file: ./test/starlet/gemini_test.gleam
+test_name: encode_request_with_json_schema_test
+---
+{"generationConfig":{"responseMimeType":"application/json","responseSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}},"contents":[{"role":"user","parts":[{"text":"Give me a name"}]}]}

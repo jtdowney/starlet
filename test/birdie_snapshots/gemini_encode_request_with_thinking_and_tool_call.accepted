@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: gemini encode request with thinking and tool call
+file: ./test/starlet/gemini_test.gleam
+test_name: encode_request_with_thinking_and_tool_call_test
+---
+{"contents":[{"role":"user","parts":[{"text":"What's the weather in Paris?"}]},{"role":"model","parts":[{"thoughtSignature":"sig-abc","text":"let me check the weather","thought":true},{"functionCall":{"name":"get_weather","args":{"city":"Paris"}}}]},{"role":"user","parts":[{"functionResponse":{"name":"get_weather","response":{"temp":22}}}]},{"role":"user","parts":[{"text":"What about London?"}]}]}

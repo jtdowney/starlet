@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: openai encode request multi turn with response id
+file: ./test/starlet/openai_test.gleam
+test_name: encode_request_multi_turn_with_response_id_test
+---
+{"model":"gpt-5-nano","input":[{"role":"user","content":"Follow up question"}],"previous_response_id":"resp_abc123"}

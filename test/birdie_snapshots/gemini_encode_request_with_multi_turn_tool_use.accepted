@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: gemini encode request with multi turn tool use
+file: ./test/starlet/gemini_test.gleam
+test_name: encode_request_with_multi_turn_tool_use_test
+---
+{"contents":[{"role":"user","parts":[{"text":"What's the weather in Paris?"}]},{"role":"model","parts":[{"functionCall":{"name":"get_weather","args":{"city":"Paris"}}}]},{"role":"user","parts":[{"functionResponse":{"name":"get_weather","response":{"temp":22}}}]},{"role":"model","parts":[{"text":"It's 22°C in Paris!"}]},{"role":"user","parts":[{"text":"Now check London too"}]}]}

@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: gemini assistant appends empty thought history
+file: ./test/starlet/gemini_test.gleam
+test_name: assistant_appends_empty_thought_history_test
+---
+{"contents":[{"role":"user","parts":[{"text":"What is 2+2?"}]},{"role":"model","parts":[{"text":"4"}]},{"role":"user","parts":[{"text":"Think about this"}]},{"role":"model","parts":[{"thoughtSignature":"sig-xyz","text":"let me think","thought":true},{"text":"The answer is 42"}]},{"role":"user","parts":[{"text":"Elaborate"}]}]}

@@ -1,8 +1,10 @@
 import envoy
 import gleam/dynamic/decode
+import gleam/erlang/process
+import gleam/httpc
 import gleam/json
-import gleam/option.{Some}
-import gleam/result
+import gleam/list
+import gleam/option
 import gleam/string
 import jscheam/schema
 import starlet
@@ -10,18 +12,26 @@ import starlet/anthropic
 import starlet/tool
 import unitest
 
+fn send_chat(
+  chat: starlet.Chat(tools, format, starlet.Ready, anthropic.Ext),
+  creds: anthropic.Credentials,
+) -> Result(starlet.Turn(tools, format, anthropic.Ext), starlet.Error) {
+  let assert Ok(resp) = anthropic.request(chat, creds) |> httpc.send
+  anthropic.response(chat, resp)
+}
+
 pub fn simple_chat_test() -> Nil {
   use <- unitest.tag("integration")
 
-  let api_key = envoy.get("ANTHROPIC_API_KEY") |> result.unwrap("")
-  let client = anthropic.new(api_key)
+  let assert Ok(api_key) = envoy.get("ANTHROPIC_API_KEY")
+  let creds = anthropic.credentials(api_key)
 
   let chat =
-    starlet.chat(client, "claude-haiku-4-5-20251001")
+    anthropic.chat("claude-haiku-4-5-20251001")
     |> starlet.system("Reply with exactly one word.")
     |> starlet.user("Say hello")
 
-  let assert Ok(#(_chat, turn)) = starlet.send(chat)
+  let assert Ok(turn) = send_chat(chat, creds)
   let response = starlet.text(turn)
 
   assert string.length(response) > 0
@@ -30,8 +40,8 @@ pub fn simple_chat_test() -> Nil {
 pub fn tool_calling_test() -> Nil {
   use <- unitest.tag("integration")
 
-  let api_key = envoy.get("ANTHROPIC_API_KEY") |> result.unwrap("")
-  let client = anthropic.new(api_key)
+  let assert Ok(api_key) = envoy.get("ANTHROPIC_API_KEY")
+  let creds = anthropic.credentials(api_key)
 
   let weather_tool =
     tool.function(
@@ -56,14 +66,15 @@ pub fn tool_calling_test() -> Nil {
     )
 
   let chat =
-    starlet.chat(client, "claude-haiku-4-5-20251001")
+    anthropic.chat("claude-haiku-4-5-20251001")
     |> starlet.system(
       "You are a helpful assistant. Use the get_weather tool when asked about weather.",
     )
     |> starlet.with_tools([weather_tool])
     |> starlet.user("What is the weather in Paris?")
 
-  let assert Ok(starlet.ToolCall(chat:, turn: _, calls:)) = starlet.step(chat)
+  let assert Ok(turn) = send_chat(chat, creds)
+  let calls = starlet.tool_calls(turn)
   let assert [call] = calls
   assert call.name == "get_weather"
 
@@ -75,9 +86,10 @@ pub fn tool_calling_test() -> Nil {
         #("condition", json.string("sunny")),
       ]),
     )
+  let chat = starlet.append_turn(chat, turn)
   let chat = starlet.with_tool_results(chat, [tool_result])
 
-  let assert Ok(starlet.Done(chat: _, turn:)) = starlet.step(chat)
+  let assert Ok(turn) = send_chat(chat, creds)
   let response = starlet.text(turn)
 
   assert string.length(response) > 0
@@ -86,8 +98,8 @@ pub fn tool_calling_test() -> Nil {
 pub fn json_output_test() -> Nil {
   use <- unitest.tag("integration")
 
-  let api_key = envoy.get("ANTHROPIC_API_KEY") |> result.unwrap("")
-  let client = anthropic.new(api_key)
+  let assert Ok(api_key) = envoy.get("ANTHROPIC_API_KEY")
+  let creds = anthropic.credentials(api_key)
 
   let person_schema =
     schema.object([
@@ -98,7 +110,7 @@ pub fn json_output_test() -> Nil {
     |> schema.disallow_additional_props()
 
   let chat =
-    starlet.chat(client, "claude-haiku-4-5-20251001")
+    anthropic.chat("claude-haiku-4-5-20251001")
     |> starlet.system(
       "You are a helpful assistant that extracts structured data.",
     )
@@ -107,7 +119,7 @@ pub fn json_output_test() -> Nil {
       "Extract the person info: John Smith is 30 years old and lives in Paris.",
     )
 
-  let assert Ok(#(_chat, turn)) = starlet.send(chat)
+  let assert Ok(turn) = send_chat(chat, creds)
   let json_string = starlet.json(turn)
 
   let person_decoder = {
@@ -126,21 +138,88 @@ pub fn json_output_test() -> Nil {
 pub fn thinking_test() -> Nil {
   use <- unitest.tag("integration")
 
-  let api_key = envoy.get("ANTHROPIC_API_KEY") |> result.unwrap("")
-  let client = anthropic.new(api_key)
+  let assert Ok(api_key) = envoy.get("ANTHROPIC_API_KEY")
+  let creds = anthropic.credentials(api_key)
 
   let assert Ok(chat) =
-    starlet.chat(client, "claude-haiku-4-5-20251001")
-    |> anthropic.with_thinking(16_384)
+    anthropic.chat("claude-haiku-4-5-20251001")
+    |> anthropic.with_thinking(budget: 16_384)
   let chat =
     chat
     |> starlet.max_tokens(32_000)
     |> starlet.user("What is the sum of all prime numbers between 1 and 20?")
 
-  let assert Ok(#(_chat, turn)) = starlet.send(chat)
+  let assert Ok(turn) = send_chat(chat, creds)
   let response = starlet.text(turn)
 
   assert string.length(response) > 0
-  let assert Some(_) = anthropic.thinking(turn)
+  let assert option.Some(_) = anthropic.thinking(turn)
   Nil
+}
+
+pub fn streaming_test() -> Nil {
+  use <- unitest.tag("integration")
+
+  let assert Ok(api_key) = envoy.get("ANTHROPIC_API_KEY")
+  let creds = anthropic.credentials(api_key)
+
+  let chat =
+    anthropic.chat("claude-haiku-4-5-20251001")
+    |> starlet.system("Reply with exactly one word.")
+    |> starlet.user("Say hello")
+
+  let req = anthropic.stream_request(chat, creds)
+
+  let config = httpc.configure() |> httpc.timeout(30_000)
+  let assert Ok(request_id) = httpc.dispatch_stream_request(config, req)
+
+  let selector =
+    process.new_selector()
+    |> httpc.select_stream_messages(httpc.raw_stream_mapper())
+
+  let state = anthropic.stream_init()
+  let assert Ok(httpc.StreamStart(id, _headers, pid)) =
+    process.selector_receive(from: selector, within: 30_000)
+  assert id == request_id
+  httpc.receive_next_stream_message(pid)
+
+  let #(state, got_text) =
+    stream_loop_anthropic(selector, pid, request_id, state, False)
+  assert got_text
+
+  let turn = anthropic.stream_done(chat, state)
+  let response = starlet.text(turn)
+  assert string.length(response) > 0
+}
+
+fn stream_loop_anthropic(
+  selector: process.Selector(httpc.StreamMessage),
+  pid: process.Pid,
+  request_id: httpc.RequestIdentifier,
+  state: anthropic.StreamState,
+  got_text: Bool,
+) -> #(anthropic.StreamState, Bool) {
+  case process.selector_receive(from: selector, within: 30_000) {
+    Ok(httpc.StreamChunk(id, data)) if id == request_id -> {
+      let #(state, events) = anthropic.stream_feed(state, data)
+      let got_text =
+        got_text
+        || list.any(events, fn(event) {
+          case event {
+            starlet.TextDelta(_) -> True
+            starlet.ToolCallStart(_, _)
+            | starlet.ToolCallDelta(_, _)
+            | starlet.ThinkingDelta(_)
+            | starlet.StreamError(_)
+            | starlet.Done -> False
+          }
+        })
+      httpc.receive_next_stream_message(pid)
+      stream_loop_anthropic(selector, pid, request_id, state, got_text)
+    }
+    Ok(httpc.StreamEnd(id, _)) if id == request_id -> #(state, got_text)
+    Ok(httpc.StreamStart(_, _, _)) ->
+      stream_loop_anthropic(selector, pid, request_id, state, got_text)
+    _ -> #(state, got_text)
+  }
 }

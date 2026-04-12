@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: ollama stream tool call round trip
+file: ./test/starlet/ollama_test.gleam
+test_name: stream_tool_call_round_trip_test
+---
+{"model":"qwen3","messages":[{"role":"user","content":"What's the weather in Paris?"},{"role":"assistant","content":"","tool_calls":[{"id":"call_abc","function":{"name":"get_weather","arguments":{"city":"Paris"}}}]},{"role":"tool","tool_name":"get_weather","tool_call_id":"call_abc","content":"{\"temp\":22}"}],"stream":false,"tools":[{"type":"function","function":{"name":"get_weather","description":"Get current weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}]}

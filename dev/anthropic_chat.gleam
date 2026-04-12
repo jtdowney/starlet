@@ -1,39 +1,38 @@
-import envoy
 import example_utils as utils
+import gleam/httpc
 import gleam/io
 import gleam/result
 import starlet
 import starlet/anthropic
 
 pub fn main() {
-  let api_key = envoy.get("ANTHROPIC_API_KEY") |> result.unwrap("")
-
-  case api_key {
-    "" -> io.println("Error: ANTHROPIC_API_KEY environment variable not set")
-    _ -> run_example(api_key)
-  }
+  use api_key <- utils.require_env("ANTHROPIC_API_KEY")
+  run_example(api_key)
 }
 
 fn run_example(api_key: String) {
-  let client = anthropic.new(api_key)
+  let creds = anthropic.credentials(api_key)
 
   let result = {
     let msg1 = "What is the capital of France?"
     let msg2 = "What is its population?"
 
     let chat =
-      starlet.chat(client, "claude-haiku-4-5-20251001")
+      anthropic.chat("claude-haiku-4-5-20251001")
       |> starlet.system("You are a helpful assistant. Be concise.")
       |> starlet.user(msg1)
 
-    use #(chat, turn) <- result.try(starlet.send(chat))
+    use turn <- result.try(send_chat(chat, creds))
     io.println("User: " <> msg1)
     io.println("Claude: " <> starlet.text(turn))
     io.println("")
 
-    let chat = starlet.user(chat, msg2)
+    let chat =
+      chat
+      |> starlet.append_turn(turn)
+      |> starlet.user(msg2)
 
-    use #(_chat, turn) <- result.try(starlet.send(chat))
+    use turn <- result.try(send_chat(chat, creds))
     io.println("User: " <> msg2)
     io.println("Claude: " <> starlet.text(turn))
 
@@ -44,4 +43,12 @@ fn run_example(api_key: String) {
     Ok(_) -> Nil
     Error(err) -> io.println("Error: " <> utils.error_to_string(err))
   }
+}
+
+fn send_chat(
+  chat: starlet.Chat(tools, format, starlet.Ready, anthropic.Ext),
+  creds: anthropic.Credentials,
+) -> Result(starlet.Turn(tools, format, anthropic.Ext), starlet.Error) {
+  let assert Ok(resp) = anthropic.request(chat, creds) |> httpc.send
+  anthropic.response(chat, resp)
 }

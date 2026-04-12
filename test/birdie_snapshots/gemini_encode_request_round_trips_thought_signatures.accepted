@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: gemini encode request round trips thought signatures
+file: ./test/starlet/gemini_test.gleam
+test_name: encode_request_round_trips_thought_signatures_test
+---
+{"contents":[{"role":"user","parts":[{"text":"Think about this"}]},{"role":"model","parts":[{"thoughtSignature":"sig-abc","text":"let me reason","thought":true},{"text":"The answer is 42"}]},{"role":"user","parts":[{"text":"Tell me more"}]}]}

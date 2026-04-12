@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: openai encode request with text and tool calls
+file: ./test/starlet/openai_test.gleam
+test_name: encode_request_with_text_and_tool_calls_test
+---
+{"model":"gpt-5-nano","input":[{"role":"user","content":"What's the weather in Paris?"},{"role":"assistant","content":"I'll check the weather for you."},{"type":"function_call","call_id":"call_123","name":"get_weather","arguments":"{\"city\":\"Paris\"}"},{"type":"function_call_output","call_id":"call_123","output":"{\"temp\":22}"},{"role":"user","content":"Thanks!"}]}

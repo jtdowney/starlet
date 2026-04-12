@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: anthropic encode request with explicit max tokens
+file: ./test/starlet/anthropic_test.gleam
+test_name: encode_request_respects_explicit_max_tokens_test
+---
+{"model":"claude-haiku-4-5-20251001","max_tokens":1000,"messages":[{"role":"user","content":"Hello"}]}

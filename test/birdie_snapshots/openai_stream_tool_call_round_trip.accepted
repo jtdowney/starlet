@@ -1,0 +1,7 @@
+---
+version: 2.0.0
+title: openai stream tool call round trip
+file: ./test/starlet/openai_test.gleam
+test_name: stream_tool_call_round_trip_test
+---
+{"model":"gpt-5-nano","input":[{"role":"user","content":"What's the weather in Paris?"},{"type":"function_call","call_id":"call_abc","name":"get_weather","arguments":"{\"city\":\"Paris\"}"},{"type":"function_call_output","call_id":"call_abc","output":"{\"temp\":22}"}],"tools":[{"type":"function","name":"get_weather","description":"Get current weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}]}
