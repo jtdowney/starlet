@@ -532,7 +532,10 @@ pub fn with_reasoning(
 
 /// Continue a conversation from a previous response ID.
 /// The server will use its stored conversation state.
-pub fn continue_from(chat: Chat(t, f, s, Ext), id: String) -> Chat(t, f, s, Ext) {
+pub fn continue_from(
+  chat: Chat(t, f, s, Ext),
+  id: String,
+) -> Chat(t, f, s, Ext) {
   Chat(..chat, ext: Ext(..chat.ext, response_id: Some(id)))
 }
 
@@ -544,7 +547,9 @@ pub fn reset_response_id(chat: Chat(t, f, s, Ext)) -> Chat(t, f, s, Ext) {
 
 /// Decodes a JSON response from the OpenAI `/v1/models` endpoint.
 @internal
-pub fn decode_models(body: String) -> Result(List(Model), starlet.StarletError) {
+pub fn decode_models(
+  body: String,
+) -> Result(List(Model), starlet.StarletError) {
   let model_decoder = {
     use id <- decode.field("id", decode.string)
     use owned_by <- decode.field("owned_by", decode.string)
@@ -563,7 +568,9 @@ pub fn decode_models(body: String) -> Result(List(Model), starlet.StarletError) 
 }
 
 /// Lists available models from the OpenAI API.
-pub fn list_models(api_key: String) -> Result(List(Model), starlet.StarletError) {
+pub fn list_models(
+  api_key: String,
+) -> Result(List(Model), starlet.StarletError) {
   list_models_with_base_url(api_key, "https://api.openai.com")
 }
 

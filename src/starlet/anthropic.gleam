@@ -349,7 +349,9 @@ fn encode_assistant_message(
   ])
 }
 
-fn encode_tool_results_batch(messages: List(Message)) -> #(Json, List(Message)) {
+fn encode_tool_results_batch(
+  messages: List(Message),
+) -> #(Json, List(Message)) {
   let #(results, remaining) = collect_tool_results(messages)
   let content_blocks =
     list.map(results, fn(r) {

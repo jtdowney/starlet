@@ -363,7 +363,9 @@ pub fn has_tool_calls(turn: Turn(ToolsOn, format, ext)) -> Bool {
 }
 
 @internal
-pub fn make_turn_for_testing(content: String) -> Turn(ToolsOff, FreeText, NoExt) {
+pub fn make_turn_for_testing(
+  content: String,
+) -> Turn(ToolsOff, FreeText, NoExt) {
   Turn(text: content, tool_calls: [], ext: NoExt)
 }
 

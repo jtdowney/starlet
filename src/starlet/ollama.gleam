@@ -375,7 +375,9 @@ pub fn decode_response(
 
 /// Decodes a JSON response from the Ollama `/api/tags` endpoint.
 @internal
-pub fn decode_models(body: String) -> Result(List(Model), starlet.StarletError) {
+pub fn decode_models(
+  body: String,
+) -> Result(List(Model), starlet.StarletError) {
   let model_decoder = {
     use name <- decode.field("name", decode.string)
     use details <- decode.field("details", {
