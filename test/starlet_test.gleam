@@ -236,3 +236,32 @@ pub fn map_transport_error_converts_error_to_transport_test() {
     starlet.map_transport_error(result)
   assert message == "\"connection refused\""
 }
+
+pub fn with_ext_replaces_ext_test() {
+  let chat =
+    starlet.new_chat("test-model", "before")
+    |> starlet.user("hi")
+    |> starlet.with_ext("after")
+
+  assert chat.ext == "after"
+}
+
+pub fn error_to_string_renders_each_variant_test() {
+  let cases = [
+    #(starlet.Http(404, "not found"), "HTTP 404: not found"),
+    #(starlet.Decode("bad"), "Decode error: bad"),
+    #(starlet.Provider("openai", "fail", "{}"), "openai error: fail\n{}"),
+    #(starlet.Tool(tool.NotFound("x")), "Tool not found: x"),
+    #(starlet.Tool(tool.InvalidArguments("y")), "Invalid arguments: y"),
+    #(starlet.Tool(tool.ExecutionFailed("z")), "Tool execution failed: z"),
+    #(starlet.RateLimited(option.Some(30)), "Rate limited, retry after 30s"),
+    #(starlet.RateLimited(option.None), "Rate limited"),
+    #(starlet.InvalidUrl("nope://"), "Invalid URL: nope://"),
+    #(starlet.InvalidArgument("oops"), "Invalid argument: oops"),
+    #(starlet.Transport("refused"), "Transport error: refused"),
+  ]
+  list.each(cases, fn(pair) {
+    let #(err, expected) = pair
+    assert starlet.error_to_string(err) == expected
+  })
+}

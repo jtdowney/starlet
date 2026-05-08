@@ -116,6 +116,20 @@ pub fn to_string(call: Call) -> String {
   call.name <> "(" <> args <> ")"
 }
 
+/// Get the call arguments as a `Json` value, ready to encode.
+///
+/// Useful when persisting or forwarding tool calls outside the dispatch path.
+pub fn arguments_json(call: Call) -> Json {
+  dynamic_to_json(call.arguments)
+}
+
+/// Get the call arguments as a JSON string.
+///
+/// Convenience for the common round-trip: `Dynamic` → `Json` → `String`.
+pub fn arguments_string(call: Call) -> String {
+  json.to_string(dynamic_to_json(call.arguments))
+}
+
 /// Create a handler tuple from name and a function that receives Dynamic arguments.
 /// For most cases, prefer `handler` which provides automatic argument decoding.
 pub fn dynamic_handler(

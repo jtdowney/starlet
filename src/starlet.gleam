@@ -38,6 +38,7 @@
 //// }
 //// ```
 
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option}
@@ -64,6 +65,28 @@ pub type Error {
   InvalidArgument(message: String)
   /// Transport-level error from the HTTP client (connection refused, timeout, etc.)
   Transport(message: String)
+}
+
+/// Render an `Error` as a human-readable string.
+///
+/// Use this so consumers don't need to keep a private renderer in sync
+/// with new variants.
+pub fn error_to_string(err: Error) -> String {
+  case err {
+    Http(status, body) -> "HTTP " <> int.to_string(status) <> ": " <> body
+    Decode(message) -> "Decode error: " <> message
+    Provider(provider, message, raw) ->
+      provider <> " error: " <> message <> "\n" <> raw
+    Tool(tool.NotFound(name)) -> "Tool not found: " <> name
+    Tool(tool.InvalidArguments(message)) -> "Invalid arguments: " <> message
+    Tool(tool.ExecutionFailed(message)) -> "Tool execution failed: " <> message
+    RateLimited(option.Some(seconds)) ->
+      "Rate limited, retry after " <> int.to_string(seconds) <> "s"
+    RateLimited(option.None) -> "Rate limited"
+    InvalidUrl(url) -> "Invalid URL: " <> url
+    InvalidArgument(message) -> "Invalid argument: " <> message
+    Transport(message) -> "Transport error: " <> message
+  }
 }
 
 /// Events emitted during streaming, unified across all providers.
@@ -184,6 +207,17 @@ pub fn user(
   text: String,
 ) -> Chat(tools_state, format, Ready, ext) {
   Chat(..chat, messages: list.append(chat.messages, [UserMessage(text)]))
+}
+
+/// Replace the provider extension data while preserving the current state.
+///
+/// Stable setter for the `ext` field; prefer this over the
+/// `Chat(..chat, ext: ...)` record-update form.
+pub fn with_ext(
+  chat: Chat(tools, format, state, ext),
+  ext: ext,
+) -> Chat(tools, format, state, ext) {
+  Chat(..chat, ext:)
 }
 
 /// Sets the sampling temperature (typically 0.0 to 2.0).

@@ -182,3 +182,18 @@ pub fn dynamic_to_json_array_test() {
   let roundtripped = json.to_string(tool.dynamic_to_json(dyn))
   assert original == roundtripped
 }
+
+pub fn arguments_json_returns_json_value_test() {
+  let arguments = make_arguments([#("city", json.string("Paris"))])
+  let call = tool.Call(id: "1", name: "x", arguments:)
+
+  let expected = json.to_string(json.object([#("city", json.string("Paris"))]))
+  assert json.to_string(tool.arguments_json(call)) == expected
+}
+
+pub fn arguments_string_returns_json_string_test() {
+  let arguments = make_arguments([#("city", json.string("Paris"))])
+  let call = tool.Call(id: "1", name: "x", arguments:)
+
+  assert tool.arguments_string(call) == "{\"city\":\"Paris\"}"
+}

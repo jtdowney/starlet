@@ -28,6 +28,7 @@
 //// |> starlet.user("Solve this step by step...")
 //// ```
 
+import gleam/bool
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/http
@@ -149,6 +150,53 @@ pub fn assistant(
   starlet.Chat(
     ..chat,
     messages: list.append(chat.messages, [starlet.AssistantMessage(text, [])]),
+  )
+}
+
+/// Adds an assistant message with prior tool calls to the chat history.
+///
+/// Useful when rehydrating a transcript that includes function calls. The
+/// resulting chat is in `Responded` state — the natural next step is
+/// `starlet.with_tool_results` or `starlet.apply_tool_results`. Requires
+/// `ToolsOn` since the helper only makes sense for tools-enabled chats.
+/// Clears `thinking_content` since the synthesized turn carries none.
+pub fn assistant_with_tool_calls(
+  chat: starlet.Chat(starlet.ToolsOn, format, starlet.Ready, Ext),
+  text: String,
+  tool_calls: List(tool.Call),
+) -> starlet.Chat(starlet.ToolsOn, format, starlet.Responded, Ext) {
+  starlet.Chat(
+    ..chat,
+    messages: list.append(chat.messages, [
+      starlet.AssistantMessage(text, tool_calls),
+    ]),
+    ext: Ext(..chat.ext, thinking_content: option.None),
+  )
+}
+
+/// Replace the message history and transition the chat to `Ready`.
+///
+/// Use this to rehydrate an Ollama chat from a stored transcript before
+/// sending. The caller is responsible for the message list being well-formed —
+/// typically ending with a `UserMessage` or `ToolResultMessage`. Returns
+/// `Error(InvalidArgument)` if `messages` is empty. Clears `thinking_content`
+/// since the rehydrated transcript has no associated last-response metadata.
+pub fn from_messages(
+  chat: starlet.Chat(tools, format, state, Ext),
+  messages: List(starlet.Message),
+) -> Result(starlet.Chat(tools, format, starlet.Ready, Ext), starlet.Error) {
+  use <- bool.guard(
+    when: list.is_empty(messages),
+    return: Error(starlet.InvalidArgument(
+      "from_messages requires at least one message",
+    )),
+  )
+  Ok(
+    starlet.Chat(
+      ..chat,
+      messages:,
+      ext: Ext(..chat.ext, thinking_content: option.None),
+    ),
   )
 }
 

@@ -1,4 +1,3 @@
-import example_utils as utils
 import gleam/httpc
 import gleam/int
 import gleam/io
@@ -31,6 +30,6 @@ pub fn main() {
 
   case result {
     Ok(_) -> Nil
-    Error(err) -> io.println("Error: " <> utils.error_to_string(err))
+    Error(err) -> io.println("Error: " <> starlet.error_to_string(err))
   }
 }

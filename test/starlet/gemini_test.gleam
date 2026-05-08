@@ -1332,3 +1332,70 @@ pub fn stream_tool_call_round_trip_test() {
   |> json.to_string
   |> birdie.snap("gemini stream tool call round trip")
 }
+
+pub fn assistant_with_tool_calls_appends_message_test() {
+  let arguments_json =
+    json.object([#("city", json.string("Paris"))]) |> json.to_string
+  let assert Ok(arguments) = json.parse(arguments_json, decode.dynamic)
+  let call = tool.Call(id: "gemini-0", name: "get_weather", arguments:)
+  let result =
+    tool.success(call, output: json.object([#("temp", json.int(22))]))
+
+  let chat =
+    make_chat("gemini-2.5-flash")
+    |> starlet.with_tools([])
+    |> starlet.with_ext(
+      gemini.Ext(
+        thinking_budget: option.None,
+        thinking: option.Some("stale reasoning"),
+        thought_history: [],
+      ),
+    )
+    |> starlet.user("Weather?")
+    |> gemini.assistant_with_tool_calls("Looking up...", [call])
+    |> starlet.with_tool_results(results: [result])
+    |> starlet.user("Thanks")
+
+  let assert [
+    starlet.UserMessage("Weather?"),
+    starlet.AssistantMessage("Looking up...", [returned]),
+    starlet.ToolResultMessage(call_id: "gemini-0", ..),
+    starlet.UserMessage("Thanks"),
+  ] = chat.messages
+  assert returned.id == "gemini-0"
+  assert list.length(chat.ext.thought_history) == 1
+  assert chat.ext.thinking == option.None
+}
+
+pub fn from_messages_resets_thinking_and_aligns_thought_history_test() {
+  let chat =
+    make_chat("gemini-2.5-flash")
+    |> starlet.with_ext(
+      gemini.Ext(
+        thinking_budget: option.None,
+        thinking: option.Some("old reasoning"),
+        thought_history: [[], []],
+      ),
+    )
+  let messages = [
+    starlet.UserMessage("Hi"),
+    starlet.AssistantMessage("Hello", []),
+    starlet.UserMessage("Again"),
+    starlet.AssistantMessage("Yep", []),
+    starlet.AssistantMessage("And again", []),
+    starlet.UserMessage("Now what"),
+  ]
+  let assert Ok(chat) = gemini.from_messages(chat, messages)
+
+  assert chat.messages == messages
+  assert chat.ext.thinking == option.None
+  assert chat.ext.thought_history == [[], [], []]
+}
+
+pub fn from_messages_rejects_empty_test() {
+  let chat = make_chat("gemini-2.5-flash")
+  assert gemini.from_messages(chat, [])
+    == Error(starlet.InvalidArgument(
+      "from_messages requires at least one message",
+    ))
+}

@@ -163,6 +163,62 @@ pub fn assistant(
   )
 }
 
+/// Adds an assistant message with prior tool calls to the chat history.
+///
+/// Useful when rehydrating a transcript that includes function calls. The
+/// resulting chat is in `Responded` state — the natural next step is
+/// `starlet.with_tool_results` or `starlet.apply_tool_results`. Clears
+/// `response_id` so the rehydrated turn is sent as a fresh request, not as
+/// a continuation of an unrelated server-side conversation, and clears
+/// `reasoning_summary` since the synthesized turn carries none.
+pub fn assistant_with_tool_calls(
+  chat: starlet.Chat(starlet.ToolsOn, format, starlet.Ready, Ext),
+  text: String,
+  tool_calls: List(tool.Call),
+) -> starlet.Chat(starlet.ToolsOn, format, starlet.Responded, Ext) {
+  let message = starlet.AssistantMessage(text, tool_calls)
+  starlet.Chat(
+    ..chat,
+    messages: list.append(chat.messages, [message]),
+    ext: Ext(
+      ..chat.ext,
+      response_id: option.None,
+      reasoning_summary: option.None,
+    ),
+  )
+}
+
+/// Replace the message history and transition the chat to `Ready`.
+///
+/// Use this to rehydrate an OpenAI chat from a stored transcript before
+/// sending. The caller is responsible for the message list being well-formed —
+/// typically ending with a `UserMessage` or `ToolResultMessage`. Returns
+/// `Error(InvalidArgument)` if `messages` is empty. Clears `response_id` and
+/// `reasoning_summary` so the rehydrated turn is sent as a fresh request,
+/// not as a continuation of an unrelated server-side conversation.
+pub fn from_messages(
+  chat: starlet.Chat(tools, format, state, Ext),
+  messages: List(starlet.Message),
+) -> Result(starlet.Chat(tools, format, starlet.Ready, Ext), starlet.Error) {
+  use <- bool.guard(
+    when: list.is_empty(messages),
+    return: Error(starlet.InvalidArgument(
+      "from_messages requires at least one message",
+    )),
+  )
+  Ok(
+    starlet.Chat(
+      ..chat,
+      messages:,
+      ext: Ext(
+        ..chat.ext,
+        response_id: option.None,
+        reasoning_summary: option.None,
+      ),
+    ),
+  )
+}
+
 /// Get the response ID from an OpenAI turn.
 pub fn response_id(turn: starlet.Turn(tools, format, Ext)) -> Option(String) {
   turn.ext.response_id

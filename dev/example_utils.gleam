@@ -6,35 +6,9 @@ import gleam/int
 import gleam/io
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option
 import gleam/result
 import starlet
 import starlet/tool
-
-pub fn error_to_string(err: starlet.Error) -> String {
-  case err {
-    starlet.Http(status, body) ->
-      "HTTP " <> int.to_string(status) <> ": " <> body
-    starlet.Decode(msg) -> "Decode error: " <> msg
-    starlet.Provider(provider, msg, raw) ->
-      provider <> " error: " <> msg <> "\n" <> raw
-    starlet.Tool(tool_err) ->
-      case tool_err {
-        tool.NotFound(name) -> "Tool not found: " <> name
-        tool.InvalidArguments(msg) -> "Invalid arguments: " <> msg
-        tool.ExecutionFailed(msg) -> "Tool execution failed: " <> msg
-      }
-    starlet.RateLimited(retry_after) ->
-      case retry_after {
-        option.Some(seconds) ->
-          "Rate limited, retry after " <> int.to_string(seconds) <> "s"
-        option.None -> "Rate limited"
-      }
-    starlet.InvalidUrl(url) -> "Invalid URL: " <> url
-    starlet.InvalidArgument(msg) -> "Invalid argument: " <> msg
-    starlet.Transport(msg) -> "Transport error: " <> msg
-  }
-}
 
 pub fn weather_decoder() -> decode.Decoder(String) {
   use city <- decode.field("city", decode.string)

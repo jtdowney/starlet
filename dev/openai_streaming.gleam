@@ -65,7 +65,7 @@ fn stream_loop(
         case event {
           starlet.TextDelta(text) -> io.print(text)
           starlet.StreamError(err) ->
-            io.println_error("Error: " <> utils.error_to_string(err))
+            io.println_error("Error: " <> starlet.error_to_string(err))
           starlet.ToolCallStart(_, _) -> Nil
           starlet.ToolCallDelta(_, _) -> Nil
           starlet.ThinkingDelta(_) -> Nil

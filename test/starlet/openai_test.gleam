@@ -1106,3 +1106,63 @@ pub fn stream_tool_call_round_trip_test() {
   |> json.to_string
   |> birdie.snap("openai stream tool call round trip")
 }
+
+pub fn assistant_with_tool_calls_appends_message_test() {
+  let arguments_json =
+    json.object([#("city", json.string("Paris"))]) |> json.to_string
+  let assert Ok(arguments) = json.parse(arguments_json, decode.dynamic)
+  let call = tool.Call(id: "call_1", name: "get_weather", arguments:)
+  let result =
+    tool.success(call, output: json.object([#("temp", json.int(22))]))
+
+  let chat =
+    make_chat("gpt-5-nano")
+    |> starlet.with_tools([])
+    |> starlet.with_ext(openai.Ext(
+      response_id: option.Some("resp_stale"),
+      reasoning_effort: option.None,
+      reasoning_summary: option.Some("stale summary"),
+    ))
+    |> starlet.user("Weather?")
+    |> openai.assistant_with_tool_calls("Looking up...", [call])
+    |> starlet.with_tool_results(results: [result])
+    |> starlet.user("Thanks")
+
+  let assert [
+    starlet.UserMessage("Weather?"),
+    starlet.AssistantMessage("Looking up...", [returned]),
+    starlet.ToolResultMessage(call_id: "call_1", ..),
+    starlet.UserMessage("Thanks"),
+  ] = chat.messages
+  assert returned.id == "call_1"
+  assert chat.ext.response_id == option.None
+  assert chat.ext.reasoning_summary == option.None
+}
+
+pub fn from_messages_resets_response_id_and_summary_test() {
+  let chat =
+    make_chat("gpt-5-nano")
+    |> starlet.with_ext(openai.Ext(
+      response_id: option.Some("resp_stale"),
+      reasoning_effort: option.None,
+      reasoning_summary: option.Some("old summary"),
+    ))
+  let messages = [
+    starlet.UserMessage("Hi"),
+    starlet.AssistantMessage("Hello", []),
+    starlet.UserMessage("Again"),
+  ]
+  let assert Ok(chat) = openai.from_messages(chat, messages)
+
+  assert chat.messages == messages
+  assert chat.ext.response_id == option.None
+  assert chat.ext.reasoning_summary == option.None
+}
+
+pub fn from_messages_rejects_empty_test() {
+  let chat = make_chat("gpt-5-nano")
+  assert openai.from_messages(chat, [])
+    == Error(starlet.InvalidArgument(
+      "from_messages requires at least one message",
+    ))
+}

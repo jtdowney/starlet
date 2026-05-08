@@ -29,6 +29,7 @@
 ////   |> starlet.user("Solve this step by step...")
 //// ```
 
+import gleam/bool
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
@@ -170,6 +171,71 @@ pub fn assistant(
       thought_history: list.append(chat.ext.thought_history, [[]]),
     ),
   )
+}
+
+/// Adds an assistant message with prior tool calls to the chat history.
+///
+/// Useful when rehydrating a transcript that includes function calls. The
+/// resulting chat is in `Responded` state — the natural next step is
+/// `starlet.with_tool_results` or `starlet.apply_tool_results`. Appends an
+/// empty thought-record slot to keep `thought_history` aligned with
+/// assistant messages — Gemini thought signatures are not preserved when
+/// rehydrating from a flat external transcript. Clears `thinking` since the
+/// synthesized turn carries no thinking content.
+pub fn assistant_with_tool_calls(
+  chat: starlet.Chat(starlet.ToolsOn, format, starlet.Ready, Ext),
+  text: String,
+  tool_calls: List(tool.Call),
+) -> starlet.Chat(starlet.ToolsOn, format, starlet.Responded, Ext) {
+  let message = starlet.AssistantMessage(text, tool_calls)
+  starlet.Chat(
+    ..chat,
+    messages: list.append(chat.messages, [message]),
+    ext: Ext(
+      ..chat.ext,
+      thinking: option.None,
+      thought_history: list.append(chat.ext.thought_history, [[]]),
+    ),
+  )
+}
+
+/// Replace the message history and transition the chat to `Ready`.
+///
+/// Use this to rehydrate a Gemini chat from a stored transcript before
+/// sending. The caller is responsible for the message list being well-formed —
+/// typically ending with a `UserMessage` or `ToolResultMessage`. Returns
+/// `Error(InvalidArgument)` if `messages` is empty. Resets `thinking` and
+/// rebuilds `thought_history` with one empty slot per `AssistantMessage` in
+/// the new transcript, since Gemini thought signatures are not preserved
+/// when rehydrating from a flat external transcript.
+pub fn from_messages(
+  chat: starlet.Chat(tools, format, state, Ext),
+  messages: List(starlet.Message),
+) -> Result(starlet.Chat(tools, format, starlet.Ready, Ext), starlet.Error) {
+  use <- bool.guard(
+    when: list.is_empty(messages),
+    return: Error(starlet.InvalidArgument(
+      "from_messages requires at least one message",
+    )),
+  )
+  let thought_history =
+    list.repeat([], times: count_assistant_messages(messages))
+  Ok(
+    starlet.Chat(
+      ..chat,
+      messages:,
+      ext: Ext(..chat.ext, thinking: option.None, thought_history:),
+    ),
+  )
+}
+
+fn count_assistant_messages(messages: List(starlet.Message)) -> Int {
+  list.count(messages, fn(msg) {
+    case msg {
+      starlet.AssistantMessage(..) -> True
+      starlet.UserMessage(..) | starlet.ToolResultMessage(..) -> False
+    }
+  })
 }
 
 /// Builds an HTTP request for sending a chat to Gemini.

@@ -48,7 +48,7 @@ fn run_example(api_key: String) {
 
   case result {
     Ok(_) -> Nil
-    Error(err) -> io.println("Error: " <> utils.error_to_string(err))
+    Error(err) -> io.println("Error: " <> starlet.error_to_string(err))
   }
 }
 

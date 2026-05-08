@@ -1026,3 +1026,68 @@ pub fn stream_tool_call_round_trip_test() {
   |> json.to_string
   |> birdie.snap("anthropic stream tool call round trip")
 }
+
+pub fn assistant_with_tool_calls_appends_message_test() {
+  let arguments_json =
+    json.object([#("city", json.string("Paris"))]) |> json.to_string
+  let assert Ok(arguments) = json.parse(arguments_json, decode.dynamic)
+  let call = tool.Call(id: "toolu_1", name: "get_weather", arguments:)
+  let result =
+    tool.success(call, output: json.object([#("temp", json.int(22))]))
+
+  let chat =
+    make_chat("claude-haiku-4-5-20251001")
+    |> starlet.with_tools([])
+    |> starlet.with_ext(anthropic.Ext(
+      thinking_budget: option.None,
+      thinking: option.Some("stale reasoning"),
+    ))
+    |> starlet.user("Weather?")
+    |> anthropic.assistant_with_tool_calls("Looking up...", [call])
+    |> starlet.with_tool_results(results: [result])
+    |> starlet.user("Thanks")
+
+  let assert [
+    starlet.UserMessage("Weather?"),
+    starlet.AssistantMessage("Looking up...", [returned]),
+    starlet.ToolResultMessage(call_id: "toolu_1", ..),
+    starlet.UserMessage("Thanks"),
+  ] = chat.messages
+  assert returned.id == "toolu_1"
+  assert returned.name == "get_weather"
+  assert chat.ext.thinking == option.None
+}
+
+pub fn from_messages_replaces_history_and_lands_in_ready_test() {
+  let messages = [
+    starlet.UserMessage("Hi"),
+    starlet.AssistantMessage("Hello", []),
+    starlet.UserMessage("How are you?"),
+  ]
+  let assert Ok(chat) =
+    make_chat("claude-haiku-4-5-20251001")
+    |> starlet.with_ext(anthropic.Ext(
+      thinking_budget: option.None,
+      thinking: option.Some("stale reasoning"),
+    ))
+    |> anthropic.from_messages(messages)
+  let turn = starlet.Turn(text: "Fine.", tool_calls: [], ext: chat.ext)
+  let chat = starlet.append_turn(chat, turn)
+
+  assert chat.messages
+    == [
+      starlet.UserMessage("Hi"),
+      starlet.AssistantMessage("Hello", []),
+      starlet.UserMessage("How are you?"),
+      starlet.AssistantMessage("Fine.", []),
+    ]
+  assert chat.ext.thinking == option.None
+}
+
+pub fn from_messages_rejects_empty_test() {
+  let chat = make_chat("claude-haiku-4-5-20251001")
+  assert anthropic.from_messages(chat, [])
+    == Error(starlet.InvalidArgument(
+      "from_messages requires at least one message",
+    ))
+}
