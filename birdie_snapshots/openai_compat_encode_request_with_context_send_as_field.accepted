@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: openai_compat encode request with context send as field
+file: ./test/starlet/openai_compat_test.gleam
+test_name: encode_request_with_context_send_as_field_test
+---
+{"model":"deepseek-r1","messages":[{"role":"user","content":"First question"},{"role":"assistant","content":"First answer"},{"role":"user","content":"Follow up"}],"reasoning_effort":"high"}

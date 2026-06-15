@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: openai_compat encode request with zai thinking enabled
+file: ./test/starlet/openai_compat_test.gleam
+test_name: encode_request_with_zai_thinking_test
+---
+{"model":"deepseek-reasoner","messages":[{"role":"user","content":"Think about this"}],"thinking":{"type":"enabled"}}

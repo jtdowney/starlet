@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: openai_compat encode request with tool calls
+file: ./test/starlet/openai_compat_test.gleam
+test_name: encode_request_with_tool_calls_test
+---
+{"model":"gpt-4o","messages":[{"role":"user","content":"What's the weather in Paris?"},{"role":"assistant","content":null,"tool_calls":[{"id":"call_123","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Paris\"}"}}]}]}

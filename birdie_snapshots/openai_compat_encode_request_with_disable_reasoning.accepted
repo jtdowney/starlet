@@ -1,0 +1,7 @@
+---
+version: 1.5.3
+title: openai_compat encode request with disable_reasoning
+file: ./test/starlet/openai_compat_test.gleam
+test_name: encode_request_with_disable_reasoning_test
+---
+{"model":"glm-z1-air","messages":[{"role":"user","content":"Quick answer"}],"disable_reasoning":true}
